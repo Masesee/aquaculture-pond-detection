@@ -1,6 +1,8 @@
 [tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
 # Ignore E402 (Module level import not at top of file) because we use sys.path.insert 
 # to allow running scripts from subdirectories without package installation.
 ignore = ["E402"]
-line-length = 88
-target-version = "py310"

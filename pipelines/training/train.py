@@ -17,6 +17,7 @@ Outputs:
 """
 
 import sys
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,6 +92,27 @@ def main() -> None:
     print(f"  X_train: {X_train.shape} | X_test: {X_test.shape}")
     print(f"  Positive rate: {y_train.mean():.3f}")
 
+    # ── Load tuned params if available ────────────────────────────────────────
+    best_params_path = MODELS_DIR / "best_params.json"
+    if best_params_path.exists():
+        with open(best_params_path) as f:
+            tuned = json.load(f)
+        # Merge: tuned params override defaults, infrastructure params preserved
+        active_params = {
+            **LGBM_PARAMS,
+            **tuned,
+            "objective":     "binary",
+            # "class_weight":  "balanced",
+            "class_weight":  None,
+            "random_state":  42,
+            "n_jobs":        -1,
+            "verbose":       -1,
+        }
+        print(f"  Loaded tuned params from {best_params_path.name}")
+    else:
+        active_params = LGBM_PARAMS
+        print("  Using default params (no tuning found)")
+
     # ── CV splits ─────────────────────────────────────────────────────────────
     print(f"\n=== {N_SPLITS}-fold stratified CV (label × region) ===")
     splits = make_cv_splits(train_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
@@ -105,7 +127,7 @@ def main() -> None:
         X_tr, y_tr = X_train.iloc[train_pos], y_train[train_pos]
         X_val, y_val = X_train.iloc[val_pos], y_train[val_pos]
 
-        model = lgb.LGBMClassifier(**LGBM_PARAMS)
+        model = lgb.LGBMClassifier(**active_params)
         model.fit(
             X_tr, y_tr,
             eval_set=[(X_val, y_val)],
@@ -171,7 +193,7 @@ def main() -> None:
     final_n_estimators = int(round(np.mean(best_iters) * 1.05))  # 5% more rounds than CV mean
     print(f"  CV best_iter mean={np.mean(best_iters):.0f} → final n_estimators={final_n_estimators}")
 
-    final_params = {**LGBM_PARAMS, "n_estimators": final_n_estimators}
+    final_params = {**active_params, "n_estimators": final_n_estimators}
     # Remove early stopping keys not valid without eval_set
     final_model = lgb.LGBMClassifier(**{
         k: v for k, v in final_params.items()

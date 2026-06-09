@@ -69,10 +69,14 @@ POND_CLUSTER_CENTROID = (48.85, 39.48)
 
 
 def _distance_to_centroid(lon: pd.Series, lat: pd.Series) -> pd.Series:
-    """Euclidean distance in degree-space. Sufficient for a relative spatial prior."""
+    """
+    Log-transformed distance to pond cluster centroid.
+    log1p compresses large distances, reducing leverage of OOD points.
+    """
     dlon = lon - POND_CLUSTER_CENTROID[0]
     dlat = lat - POND_CLUSTER_CENTROID[1]
-    return np.sqrt(dlon**2 + dlat**2)
+    raw_dist = np.sqrt(dlon**2 + dlat**2)
+    return np.log1p(raw_dist)
 
 
 # ── Main feature builder ───────────────────────────────────────────────────────
