@@ -8,6 +8,7 @@ This project aims to detect aquaculture ponds by leveraging monthly temporal pro
 
 ### Key Features
 - **Regional Clustering:** Uses K-Means on coordinates to handle spatial heterogeneity (e.g., high-density vs. low-density pond regions).
+- **Log-Transformed Spatial Features:** Computes distance to the primary pond cluster centroid using a log-transformation (log1p) to reduce the leverage of distant out-of-distribution points.
 - **Multi-Modal Features:** Combines Sentinel-1 (VH, VV) and Sentinel-2 (10 bands) across 12 months.
 - **Spectral Indices:** Calculates NDWI, MNDWI, NDVI, NDRE, AWEInsh, and SAR ratios.
 - **Temporal Aggregation:** Computes 9 statistical aggregations (mean, std, percentiles, etc.) per band/index.
@@ -110,6 +111,7 @@ pytest
 │   ├── features/       # Feature engineering modules + tests
 │   ├── training/       # Training, Tuning, CV, and Calibration logic + tests
 │   └── evaluation/     # Metrics and SHAP analysis + tests
+└── tests/              # End-to-end integration and pipeline tests
 ```
 
 ---
