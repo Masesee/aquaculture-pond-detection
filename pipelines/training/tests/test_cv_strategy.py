@@ -93,3 +93,62 @@ def test_cv_reproducible(synthetic_train_df):
     for (tr_a, val_a), (tr_b, val_b) in zip(splits_a, splits_b):
         assert np.array_equal(tr_a, tr_b)
         assert np.array_equal(val_a, val_b)
+
+
+def test_pseudo_label_indices_never_in_val():
+    """
+    Pseudo-labeled rows appended after original data must never
+    appear in any validation fold.
+    """
+    n_orig   = 80
+    n_pseudo = 20
+
+    # Simulate original splits on 80 rows
+    base_df  = pd.DataFrame({
+        TARGET_COL: np.random.default_rng(0).integers(0, 2, n_orig),
+        "region":   np.random.default_rng(1).integers(0, 2, n_orig),
+    })
+    splits = make_cv_splits(base_df, n_splits=5)
+
+    # Extend train indices to include pseudo rows
+    pseudo_indices = np.arange(n_orig, n_orig + n_pseudo)
+    extended_splits = [
+        (np.concatenate([tr, pseudo_indices]), val)
+        for tr, val in splits
+    ]
+
+    # No pseudo index should appear in any val fold
+    for fold, (tr, val) in enumerate(extended_splits):
+        overlap = set(val) & set(pseudo_indices)
+        assert len(overlap) == 0, (
+            f"Fold {fold}: pseudo indices {overlap} appeared in validation"
+        )
+
+
+def test_iterative_pseudo_val_indices_clean():
+    """
+    Across all iterations, validation indices must only contain
+    original training rows — never pseudo-labeled rows.
+    """
+    n_orig   = 80
+    n_pseudo = 20
+
+    base_df = pd.DataFrame({
+        TARGET_COL: np.random.default_rng(0).integers(0, 2, n_orig),
+        "region":   np.random.default_rng(1).integers(0, 2, n_orig),
+    })
+    splits = make_cv_splits(base_df, n_splits=5)
+    pseudo_indices = np.arange(n_orig, n_orig + n_pseudo)
+
+    for iteration in range(3):
+        # Simulate growing pseudo pool each iteration
+        current_pseudo = pseudo_indices[:n_pseudo // (3 - iteration)]
+        extended = [
+            (np.concatenate([tr, current_pseudo]), val)
+            for tr, val in splits
+        ]
+        for fold, (tr, val) in enumerate(extended):
+            assert max(val) < n_orig, (
+                f"Iter {iteration} Fold {fold}: val index {max(val)} "
+                f">= n_orig {n_orig}"
+            )

@@ -38,22 +38,20 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_SPLITS      = 5
 RANDOM_STATE  = 42
-N_TRIALS      = 100
+N_TRIALS      = 150
 STUDY_NAME    = "lgbm_aquaculture"
 STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study.db'}"
-
-EARLY_STOPPING_ROUNDS = 50
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
     params = {
         "objective":         "binary",
         "boosting_type":     "gbdt",
-        "n_estimators":      1000,
+        "n_estimators":      trial.suggest_int(  "n_estimators",   300,   2000),
         "learning_rate":     trial.suggest_float("learning_rate",  0.005, 0.1,  log=True),
         "num_leaves":        trial.suggest_int(  "num_leaves",     16,    128),
         "max_depth":         trial.suggest_int(  "max_depth",      3,     10),
-        "min_child_samples": trial.suggest_int(  "min_child_samples", 5,  50),
+        "min_child_samples": trial.suggest_int(  "min_child_samples", 5,  80),
         "subsample":         trial.suggest_float("subsample",      0.5,   1.0),
         "subsample_freq":    1,
         "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.4, 1.0),
@@ -76,17 +74,9 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
         X_tr  = X.iloc[train_pos]
         y_tr  = y[train_pos]
         X_val = X.iloc[val_pos]
-        y_val = y[val_pos]
 
         model = lgb.LGBMClassifier(**params)
-        model.fit(
-            X_tr, y_tr,
-            eval_set=[(X_val, y_val)],
-            callbacks=[
-                lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False),
-                lgb.log_evaluation(period=-1),
-            ],
-        )
+        model.fit(X_tr, y_tr)
         oof_probs[val_pos] = model.predict_proba(X_val)[:, 1]
 
     preds = (oof_probs >= 0.5).astype(int)

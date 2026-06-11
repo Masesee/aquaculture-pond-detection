@@ -60,6 +60,25 @@ def _persistence(monthly_values: np.ndarray, operator: str, threshold: float) ->
     raise ValueError(f"Unknown operator: {operator}")
 
 
+# ── Consecutive-month change features ─────────────────────────────────────────
+
+def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
+    """
+    Computes statistics over 11 consecutive-month absolute differences.
+    Measures temporal stability — invariant across time periods.
+    """
+    diffs = np.abs(np.diff(monthly_values))   # shape (11,)
+    return {
+        "max_consec_change":  float(np.max(diffs)),
+        "mean_consec_change": float(np.mean(diffs)),
+        "monotone_fraction":  float(np.mean(diffs < 0.05)),
+    }
+
+
+# Bands/indices to compute consecutive change features for
+CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
+
+
 # ── Spatial features ───────────────────────────────────────────────────────────
 
 # Pond cluster centroid — derived from region_map visual inspection.
@@ -140,6 +159,27 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
             vals = monthly_index_values[index_name][i]
             row[feat_name] = _persistence(vals, operator, threshold)
 
+        # ── Consecutive-month change features ──
+        for target in CONSEC_CHANGE_TARGETS:
+            if target in INDEX_FN_MAP:
+                vals = monthly_index_values[target][i]
+            else:
+                vals = monthly_band_values[target][i]
+            changes = _consecutive_changes(vals)
+            for change_name, change_val in changes.items():
+                row[f"{target}__{change_name}"] = change_val
+
+        # ── Cross-index water agreement ──
+        ndwi_monthly  = monthly_index_values["NDWI"][i]
+        mndwi_monthly = monthly_index_values["MNDWI"][i]
+        awei_monthly  = monthly_index_values["AWEInsh"][i]
+
+        all_positive = (ndwi_monthly > 0) & (mndwi_monthly > 0) & (awei_monthly > 0)
+        all_negative = (ndwi_monthly <= 0) & (mndwi_monthly <= 0) & (awei_monthly <= 0)
+
+        row["water_index_agreement"]  = float(np.mean(all_positive))
+        row["water_index_unanimous"]  = float(np.mean(all_positive | all_negative))
+
         feature_rows.append(row)
 
     features = pd.DataFrame(feature_rows, index=df.index)
@@ -174,6 +214,13 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     for feat_name in PERSISTENCE_RULES:
         cols.append(feat_name)
+
+    for target in CONSEC_CHANGE_TARGETS:
+        for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
+            cols.append(f"{target}__{suffix}")
+
+    cols.append("water_index_agreement")
+    cols.append("water_index_unanimous")
 
     cols.append("dist_to_pond_centroid")
     cols.append("region")

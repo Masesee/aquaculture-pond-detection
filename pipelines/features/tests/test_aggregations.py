@@ -19,6 +19,8 @@ from pipelines.features.aggregations import (
     _agg_series,
     _persistence,
     PERSISTENCE_RULES,
+    _consecutive_changes,
+    CONSEC_CHANGE_TARGETS,
 )
 
 
@@ -149,3 +151,44 @@ def test_persistence_counts_integer(minimal_raw_df, minimal_regions):
         assert col.between(0, 12).all(), (
             f"Persistence feature {feat} out of [0,12]: {col.values}"
         )
+
+
+def test_consecutive_changes_constant():
+    """Constant series: all diffs=0, monotone_fraction=1."""
+    vals = np.full(12, 0.15)
+    result = _consecutive_changes(vals)
+    assert np.isclose(result["max_consec_change"],  0.0,  atol=1e-9)
+    assert np.isclose(result["mean_consec_change"], 0.0,  atol=1e-9)
+    assert np.isclose(result["monotone_fraction"],  1.0,  atol=1e-9)
+
+
+def test_consecutive_changes_volatile():
+    """Alternating 0/1 series: all diffs=1, monotone_fraction=0."""
+    vals = np.array([0.0, 1.0] * 6)
+    result = _consecutive_changes(vals)
+    assert np.isclose(result["max_consec_change"],  1.0, atol=1e-9)
+    assert np.isclose(result["mean_consec_change"], 1.0, atol=1e-9)
+    assert np.isclose(result["monotone_fraction"],  0.0, atol=1e-9)
+
+
+def test_consecutive_changes_output_keys():
+    vals = np.random.default_rng(0).standard_normal(12)
+    result = _consecutive_changes(vals)
+    assert set(result.keys()) == {"max_consec_change", "mean_consec_change", "monotone_fraction"}
+
+
+def test_water_index_agreement_in_feature_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    assert "water_index_agreement" in result.columns
+    assert "water_index_unanimous" in result.columns
+    assert result["water_index_agreement"].between(0.0, 1.0).all()
+    assert result["water_index_unanimous"].between(0.0, 1.0).all()
+
+
+def test_consec_change_features_in_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in CONSEC_CHANGE_TARGETS:
+        for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
+            col = f"{target}__{suffix}"
+            assert col in result.columns, f"Missing: {col}"
+            assert not result[col].isna().any()

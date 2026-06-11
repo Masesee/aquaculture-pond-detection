@@ -12,7 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from pipelines.features.indices import ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db
+from pipelines.features.indices import (
+    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio
+)
 
 MONTH = "01"
 
@@ -100,6 +102,57 @@ def test_ndre_range(sample_df):
     assert vals.between(-1 - 1e-6, 1 + 1e-6).all()
 
 
+def test_ndti_positive_for_turbid_water():
+    """
+    Turbid water: red > green → NDTI positive.
+    Aquaculture ponds with biological load have elevated red reflectance.
+    """
+    n = 4
+    df = pd.DataFrame({
+        f"red_{MONTH}":   [1200.0] * n,   # elevated red — turbidity
+        f"green_{MONTH}": [900.0]  * n,   # lower green
+    })
+    vals = ndti(df, MONTH)
+    assert (vals > 0).all(), f"Expected positive NDTI for turbid water, got {vals.values}"
+
+
+def test_ndti_negative_for_clear_water():
+    """
+    Clear water: green > red → NDTI negative.
+    Rivers and reservoirs scatter more in green than red.
+    """
+    n = 4
+    df = pd.DataFrame({
+        f"red_{MONTH}":   [300.0]  * n,
+        f"green_{MONTH}": [3000.0] * n,
+    })
+    vals = ndti(df, MONTH)
+    assert (vals < 0).all(), f"Expected negative NDTI for clear water, got {vals.values}"
+
+
+def test_ndti_range(sample_df):
+    vals = ndti(sample_df, MONTH)
+    assert vals.between(-1 - 1e-6, 1 + 1e-6).all()
+
+
+def test_re1_nir_ratio_positive(sample_df):
+    vals = re1_nir_ratio(sample_df, MONTH)
+    assert (vals > 0).all()
+
+
+def test_re1_nir_ratio_near_one_for_algae():
+    """
+    When re1 ≈ nir (algae fluorescence), ratio approaches 1.0.
+    """
+    n = 4
+    df = pd.DataFrame({
+        f"re1_{MONTH}": [3000.0] * n,
+        f"nir_{MONTH}": [3100.0] * n,
+    })
+    vals = re1_nir_ratio(df, MONTH)
+    assert (vals > 0.9).all(), f"Expected ratio near 1.0 for algae signal, got {vals.values}"
+
+
 def test_sar_diff_db_is_negative_for_water(pure_water_df):
     """VH=-25, VV=-10 → diff = -15. Water = negative SAR diff."""
     vals = sar_diff_db(pure_water_df, MONTH)
@@ -135,6 +188,6 @@ def test_awei_nsh_positive_for_water(pure_water_df):
 
 def test_no_nan_outputs(sample_df):
     """No index should produce NaN for valid inputs."""
-    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db]:
+    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio]:
         result = fn(sample_df, MONTH)
         assert not result.isna().any(), f"{fn.__name__} produced NaN values"

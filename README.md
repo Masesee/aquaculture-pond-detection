@@ -10,10 +10,11 @@ This project aims to detect aquaculture ponds by leveraging monthly temporal pro
 - **Regional Clustering:** Uses K-Means on coordinates to handle spatial heterogeneity (e.g., high-density vs. low-density pond regions).
 - **Log-Transformed Spatial Features:** Computes distance to the primary pond cluster centroid using a log-transformation (log1p) to reduce the leverage of distant out-of-distribution points.
 - **Multi-Modal Features:** Combines Sentinel-1 (VH, VV) and Sentinel-2 (10 bands) across 12 months.
-- **Spectral Indices:** Calculates NDWI, MNDWI, NDVI, NDRE, AWEInsh, and SAR ratios.
-- **Temporal Aggregation:** Computes 9 statistical aggregations (mean, std, percentiles, etc.) per band/index.
+- **Spectral Indices:** Calculates NDWI, MNDWI, NDVI, NDRE, AWEInsh, NDTI (Turbidity), and re1/NIR ratios.
+- **Temporal Aggregation & Stability:** Computes 9 statistical aggregations (mean, std, percentiles, etc.) and temporal stability metrics (consecutive-month absolute change) for key indices.
 - **Automated Feature Selection:** Optional SHAP-based filtering to reduce dimensionality to the top 60 most impactful features.
-- **Hyperparameter Optimization:** Integrated Optuna sweep for LightGBM tuning.
+- **Hyperparameter Optimization:** Expanded Optuna sweep for LightGBM, including `n_estimators` tuning and broad search ranges.
+- **Pseudo-Labeling:** Support for iterative pseudo-labeling to leverage high-confidence test predictions for model enhancement.
 - **Probability Calibration:** Uses Isotonic Regression on out-of-fold (OOF) predictions to refine classification thresholds.
 
 ---

@@ -72,6 +72,33 @@ def awei_nsh(df: pd.DataFrame, month: str) -> pd.Series:
     return raw / 10_000.0
 
 
+def ndti(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Normalized Difference Turbidity Index.
+    (red - green) / (red + green)
+    Positive for turbid water (aquaculture ponds with biological load).
+    Negative for clear water (reservoirs, rivers).
+    Physically motivated: fish waste and algae increase red reflectance
+    relative to green in shallow productive water bodies.
+    """
+    r = df[f"red_{month}"].astype(float)
+    g = df[f"green_{month}"].astype(float)
+    return (r - g) / (r + g + EPS)
+
+
+def re1_nir_ratio(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Red Edge 1 to NIR ratio.
+    re1 / nir
+    Elevated in waters with algae/phytoplankton (aquaculture ponds).
+    Suppressed in clear water and dry land.
+    Values near 1.0 indicate chlorophyll fluorescence signal.
+    """
+    r1 = df[f"re1_{month}"].astype(float)
+    n  = df[f"nir_{month}"].astype(float)
+    return r1 / (n + EPS)
+
+
 # ── SAR indices ────────────────────────────────────────────────────────────────
 
 def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
@@ -90,10 +117,12 @@ def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
 # Maps index name → function. Consumed by aggregations.py.
 
 INDEX_FN_MAP: dict[str, callable] = {
-    "NDWI":       ndwi,
-    "MNDWI":      mndwi,
-    "NDVI":       ndvi,
-    "NDRE":       ndre,
-    "AWEInsh":    awei_nsh,
-    "SAR_diff_db": sar_diff_db,
+    "NDWI":         ndwi,
+    "MNDWI":        mndwi,
+    "NDVI":         ndvi,
+    "NDRE":         ndre,
+    "AWEInsh":      awei_nsh,
+    "SAR_diff_db":  sar_diff_db,
+    "NDTI":         ndti,
+    "re1_nir":      re1_nir_ratio,
 }

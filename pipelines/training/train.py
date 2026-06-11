@@ -78,6 +78,192 @@ def combined_score(f1: float, auc: float) -> float:
     return 0.6 * f1 + 0.4 * auc
 
 
+def load_pseudo_labels(
+    submission_path: Path,
+    test_features_path: Path,
+    high_conf_threshold: float = 0.95,
+    low_conf_threshold: float  = 0.05,
+) -> tuple[pd.DataFrame, int]:
+    """
+    Loads high-confidence test predictions as pseudo-labeled training data.
+
+    Parameters
+    ----------
+    submission_path      : path to current best submission CSV
+    test_features_path   : path to test_features.parquet
+    high_conf_threshold  : predictions above this → pseudo-label 1
+    low_conf_threshold   : predictions below this → pseudo-label 0
+
+    Returns
+    -------
+    pseudo_df  : feature DataFrame with TARGET_COL column appended
+    n_pseudo   : number of pseudo-labeled samples added
+    """
+    sub      = pd.read_csv(submission_path)
+    test_df  = pd.read_parquet(test_features_path)
+
+    # Align on ID
+    merged = test_df.merge(sub[["ID", "TargetRAUC"]], on="ID", how="left")
+
+    high_mask = merged["TargetRAUC"] > high_conf_threshold
+    low_mask  = merged["TargetRAUC"] < low_conf_threshold
+
+    pseudo = merged[high_mask | low_mask].copy()
+    pseudo[TARGET_COL] = (pseudo["TargetRAUC"] > high_conf_threshold).astype(int)
+    pseudo = pseudo.drop(columns=["TargetRAUC"])
+
+    print(f"  Pseudo-labels: {high_mask.sum()} positive + {low_mask.sum()} negative "
+          f"= {len(pseudo)} total")
+    print(f"  Pseudo positive rate: {pseudo[TARGET_COL].mean():.3f}")
+
+    return pseudo, len(pseudo)
+
+
+def run_pseudo_iterations(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_cols: list[str],
+    active_params: dict,
+    n_iterations: int,
+    high_threshold: float = 0.95,
+    low_threshold: float  = 0.05,
+    n_splits: int = 5,
+    random_state: int = 42,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    Runs iterative pseudo-labeling for n_iterations rounds.
+
+    Each round:
+      1. Trains on labeled + current pseudo-labeled data
+      2. Predicts on full test set
+      3. Updates pseudo-label pool with newly confident predictions
+      4. Stops early if pseudo-label set does not change
+
+    Returns
+    -------
+    final_train_df : augmented training DataFrame for final model fit
+    final_test_probs : raw test probabilities from last iteration
+    """
+    from pipelines.training.calibration import fit_calibrator, apply_calibrator
+
+    current_train = train_df.copy()
+    prev_pseudo_ids: set = set()
+
+    for iteration in range(1, n_iterations + 1):
+        print(f"\n  === Pseudo iteration {iteration}/{n_iterations} ===")
+
+        X_iter = current_train[feature_cols]
+        y_iter = current_train[TARGET_COL].values
+
+        # CV splits on original indices only
+        splits = make_cv_splits(
+            train_df,   # always original — val indices must stay clean
+            n_splits=n_splits,
+            random_state=random_state,
+        )
+        # Extend train portion of each fold with pseudo rows
+        n_orig = len(train_df)
+        n_aug  = len(current_train)
+        pseudo_indices = np.arange(n_orig, n_aug)
+
+        splits_aug = [
+            (np.concatenate([tr, pseudo_indices]), val)
+            for tr, val in splits
+        ]
+
+        # OOF loop
+        oof_probs = np.zeros(len(train_df))
+        best_iters = []
+
+        for fold, (tr, val) in enumerate(splits_aug):
+            model = lgb.LGBMClassifier(**{
+                **active_params, "n_estimators": 1000
+            })
+            model.fit(
+                X_iter.iloc[tr], y_iter[tr],
+                eval_set=[(X_iter.iloc[val], y_iter[val])],
+                callbacks=[
+                    lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False),
+                    lgb.log_evaluation(period=-1),
+                ],
+            )
+            oof_probs[val] = model.predict_proba(
+                X_iter.iloc[val]
+            )[:, 1]
+            best_iters.append(model.best_iteration_)
+
+        oof_preds = (oof_probs >= 0.5).astype(int)
+        f1  = f1_score(train_df[TARGET_COL].values, oof_preds)
+        auc = roc_auc_score(train_df[TARGET_COL].values, oof_probs)
+        print(f"    OOF F1={f1:.4f} | AUC={auc:.4f} | "
+              f"Score={combined_score(f1, auc):.4f}")
+
+        # Refit on full augmented set
+        n_est = int(round(np.mean(best_iters) * 1.05))
+        final = lgb.LGBMClassifier(**{**active_params, "n_estimators": n_est})
+        final.fit(X_iter, y_iter)
+
+        # Predict on test
+        raw_test = final.predict_proba(test_df[feature_cols])[:, 1]
+
+        # Calibrate
+        calibrator = fit_calibrator(oof_probs, train_df[TARGET_COL].values)
+        cal_test   = apply_calibrator(calibrator, raw_test)
+
+        # Build new pseudo-label pool
+        new_pseudo_ids_pos = set(
+            test_df.loc[cal_test > high_threshold, "ID"].tolist()
+        )
+        new_pseudo_ids_neg = set(
+            test_df.loc[cal_test < low_threshold,  "ID"].tolist()
+        )
+        new_pseudo_ids = new_pseudo_ids_pos | new_pseudo_ids_neg
+
+        added   = len(new_pseudo_ids - prev_pseudo_ids)
+        removed = len(prev_pseudo_ids - new_pseudo_ids)
+        print(f"    Pseudo pool: {len(new_pseudo_ids)} "
+              f"(+{added} added, -{removed} removed vs prev iteration)")
+
+        # Early stop if pool stabilized
+        if new_pseudo_ids == prev_pseudo_ids and iteration > 1:
+            print(f"    Pseudo pool stable — stopping early at iteration {iteration}")
+            break
+
+        prev_pseudo_ids = new_pseudo_ids
+
+        # Rebuild augmented training set
+        pseudo_mask = (cal_test > high_threshold) | (cal_test < low_threshold)
+        pseudo_rows = test_df[pseudo_mask].copy()
+        pseudo_rows[TARGET_COL] = (cal_test[pseudo_mask] > high_threshold).astype(int)
+        pseudo_rows = pseudo_rows.drop(
+            columns=[c for c in pseudo_rows.columns if c not in
+                     [col for col in feature_cols] + ["ID", TARGET_COL]]
+        )
+
+        current_train = pd.concat(
+            [train_df, pseudo_rows], ignore_index=True
+        )
+        print(f"    Training size: {len(current_train)} "
+              f"({len(pseudo_rows)} pseudo-labeled)")
+
+    return current_train, cal_test
+
+
+def analyze_confidence_distribution(
+    submission_path: Path,
+) -> None:
+    """Prints confidence distribution to help choose pseudo-label threshold."""
+    sub   = pd.read_csv(submission_path)
+    probs = sub["TargetRAUC"].values
+    print("  Prob distribution:")
+    for threshold in [0.99, 0.95, 0.90, 0.85, 0.80]:
+        n_high = (probs > threshold).sum()
+        n_low  = (probs < 1 - threshold).sum()
+        print(f"    >{threshold:.2f} or <{1-threshold:.2f}: "
+              f"{n_high} positive + {n_low} negative = {n_high+n_low} total "
+              f"({100*(n_high+n_low)/len(probs):.1f}% of test)")
+
+
 def main() -> None:
     # ── Load ──────────────────────────────────────────────────────────────────
     print("=== Loading feature matrices ===")
@@ -119,13 +305,86 @@ def main() -> None:
     split_summary = describe_splits(train_df, splits)
     print(split_summary.to_string(index=False))
 
+    # ── Optional iterative pseudo-labeling ────────────────────────────────────
+    import sys as _sys
+    use_pseudo_iter = "--pseudo-iter" in _sys.argv
+    if use_pseudo_iter:
+        n_iter_idx = _sys.argv.index("--pseudo-iter") + 1
+        n_iter     = int(_sys.argv[n_iter_idx]) if n_iter_idx < len(_sys.argv) else 3
+
+        print(f"\n=== Iterative pseudo-labeling ({n_iter} rounds) ===")
+        train_augmented, cal_test_probs_iter = run_pseudo_iterations(
+            train_df      = train_df,
+            test_df       = test_df,
+            feature_cols  = feature_cols,
+            active_params = active_params,
+            n_iterations  = n_iter,
+        )
+        # Use augmented data for final model — skip the normal train loop
+        # Write submission directly from last iteration's cal_test_probs_iter
+        binary_preds = (cal_test_probs_iter >= 0.5).astype(int)
+        submission = pd.DataFrame({
+            "ID":         test_df["ID"].values,
+            "TargetF1":   binary_preds,
+            "TargetRAUC": cal_test_probs_iter.round(6),
+        })
+        submission.to_csv(SUBMISSIONS_DIR / "submission.csv", index=False)
+        print(f"\n  Predicted ponds: {binary_preds.sum()} / {len(binary_preds)}")
+        print("  Saved: outputs/submissions/submission.csv")
+        return   # skip normal training flow
+
+    # ── Optional pseudo-labeling ───────────────────────────────────────────
+    use_pseudo = "--pseudo" in _sys.argv
+
+    if use_pseudo:
+        sub_path = SUBMISSIONS_DIR / "submission.csv"
+        if not sub_path.exists():
+            print(f"\nERROR: Pseudo-labeling requires a source submission at: {sub_path}")
+            print("Please run the pipeline once WITHOUT the --pseudo flag first.")
+            return
+
+        print("\n=== Confidence distribution in current submission ===")
+        analyze_confidence_distribution(sub_path)
+
+        print("\n=== Loading pseudo-labels ===")
+        pseudo_df, n_pseudo = load_pseudo_labels(
+            submission_path    = sub_path,
+            test_features_path = PROCESSED_DIR   / "test_features.parquet",
+        )
+        # Append pseudo-labeled rows to training data
+        train_augmented = pd.concat(
+            [train_df, pseudo_df], ignore_index=True
+        )
+        print(f"  Training size: {len(train_df)} → {len(train_augmented)} "
+              f"(+{n_pseudo} pseudo-labeled)")
+
+        # Rebuild X_train and y_train from augmented set
+        # CV is run on ORIGINAL indices only — pseudo labels go into train folds
+        # but never into validation folds. This prevents pseudo-label leakage.
+        X_train_full = train_augmented[feature_cols]
+        y_train_full = train_augmented[TARGET_COL].values
+
+        # Splits still generated on original train_df only
+        # pseudo rows are always in train, never in val
+        splits_for_pseudo = [
+            (
+                np.concatenate([tr, np.arange(len(train_df), len(train_augmented))]),
+                val
+            )
+            for tr, val in splits
+        ]
+    else:
+        X_train_full     = X_train
+        y_train_full     = y_train
+        splits_for_pseudo = splits
+
     # ── OOF loop ──────────────────────────────────────────────────────────────
     oof_probs   = np.zeros(len(train_df), dtype=float)
     fold_scores = []
 
-    for fold, (train_pos, val_pos) in enumerate(splits):
-        X_tr, y_tr = X_train.iloc[train_pos], y_train[train_pos]
-        X_val, y_val = X_train.iloc[val_pos], y_train[val_pos]
+    for fold, (train_pos, val_pos) in enumerate(splits_for_pseudo):
+        X_tr, y_tr = X_train_full.iloc[train_pos], y_train_full[train_pos]
+        X_val, y_val = X_train_full.iloc[val_pos], y_train_full[val_pos]
 
         model = lgb.LGBMClassifier(**active_params)
         model.fit(
