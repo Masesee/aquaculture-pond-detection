@@ -386,7 +386,11 @@ def main() -> None:
         X_tr, y_tr = X_train_full.iloc[train_pos], y_train_full[train_pos]
         X_val, y_val = X_train_full.iloc[val_pos], y_train_full[val_pos]
 
-        model = lgb.LGBMClassifier(**active_params)
+        # CV models use early stopping; if active_params has a fixed n_estimators
+        # (from Optuna), we remove it here to allow early stopping to work.
+        cv_params = {k: v for k, v in active_params.items() if k != "n_estimators"}
+        model = lgb.LGBMClassifier(**{**cv_params, "n_estimators": 1000})
+
         model.fit(
             X_tr, y_tr,
             eval_set=[(X_val, y_val)],
@@ -449,8 +453,24 @@ def main() -> None:
     # ── Final model: retrain on full training data ────────────────────────────
     print("\n=== Training final model on full training data ===")
     best_iters = [s["best_iter"] for s in fold_scores]
-    final_n_estimators = int(round(np.mean(best_iters) * 1.05))  # 5% more rounds than CV mean
-    print(f"  CV best_iter mean={np.mean(best_iters):.0f} → final n_estimators={final_n_estimators}")
+
+    # Respect Optuna's n_estimators when present
+    import json as _json
+    best_params_path = MODELS_DIR / "best_params.json"
+    if best_params_path.exists():
+        with open(best_params_path) as f:
+            _bp = _json.load(f)
+        if "n_estimators" in _bp:
+            final_n_estimators = _bp["n_estimators"]
+            print(f"  Using Optuna n_estimators={final_n_estimators} for final fit")
+        else:
+            final_n_estimators = int(round(np.mean(best_iters) * 1.05))
+            print(f"  CV best_iter mean={np.mean(best_iters):.0f} "
+                  f"→ final n_estimators={final_n_estimators}")
+    else:
+        final_n_estimators = int(round(np.mean(best_iters) * 1.05))
+        print(f"  CV best_iter mean={np.mean(best_iters):.0f} "
+              f"→ final n_estimators={final_n_estimators}")
 
     final_params = {**active_params, "n_estimators": final_n_estimators}
     # Remove early stopping keys not valid without eval_set

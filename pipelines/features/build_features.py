@@ -24,7 +24,11 @@ sys.path.insert(0, str(ROOT))
 import joblib
 import pandas as pd
 from contracts.schema import DataSchema, TARGET_COL
-from pipelines.features.aggregations import build_feature_matrix, feature_names, POND_CLUSTER_CENTROID
+from pipelines.features.aggregations import build_feature_matrix, feature_names
+try:
+    from pipelines.features.aggregations import POND_CLUSTER_CENTROID
+except ImportError:
+    POND_CLUSTER_CENTROID = None
 
 TRAIN_PATH     = ROOT / "data" / "raw" / "Train.csv"
 TEST_PATH      = ROOT / "data" / "raw" / "Test.csv"
@@ -125,7 +129,7 @@ def main() -> None:
 
     if shap_path.exists():
         train_feats, test_feats = apply_shap_filter(
-            train_feats, test_feats, shap_path, top_n=60
+            train_feats, test_feats, shap_path, top_n=80
         )
         is_filtered = True
     else:
@@ -161,7 +165,7 @@ def main() -> None:
     # Save metadata
     final_features = [c for c in train_feats.columns if c not in ["ID", TARGET_COL]]
     meta = {
-        "pond_cluster_centroid": list(POND_CLUSTER_CENTROID),
+        "pond_cluster_centroid": list(POND_CLUSTER_CENTROID) if POND_CLUSTER_CENTROID else None,
         "n_features": len(final_features),
         "feature_names": final_features,
         "region_kmeans_centroids": km.cluster_centers_.tolist(),

@@ -47,21 +47,22 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
     params = {
         "objective":         "binary",
         "boosting_type":     "gbdt",
-        "n_estimators":      trial.suggest_int(  "n_estimators",   300,   2000),
-        "learning_rate":     trial.suggest_float("learning_rate",  0.005, 0.1,  log=True),
-        "num_leaves":        trial.suggest_int(  "num_leaves",     16,    128),
-        "max_depth":         trial.suggest_int(  "max_depth",      3,     10),
-        "min_child_samples": trial.suggest_int(  "min_child_samples", 5,  80),
-        "subsample":         trial.suggest_float("subsample",      0.5,   1.0),
+        "n_estimators":      trial.suggest_int(  "n_estimators",      500,  3000),
+        "learning_rate":     trial.suggest_float("learning_rate",     0.01, 0.15, log=True),
+        "num_leaves":        trial.suggest_int(  "num_leaves",        31,   255),
+        "max_depth":         trial.suggest_int(  "max_depth",         3,    15),
+        "min_child_samples": trial.suggest_int(  "min_child_samples", 20,   120),
+        "subsample":         trial.suggest_float("subsample",         0.5,  1.0),
         "subsample_freq":    1,
-        "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.4, 1.0),
-        "reg_alpha":         trial.suggest_float("reg_alpha",      1e-3,  10.0, log=True),
-        "reg_lambda":        trial.suggest_float("reg_lambda",     1e-3,  10.0, log=True),
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",  0.3,  1.0),
+        "reg_alpha":         trial.suggest_float("reg_alpha",         1e-4, 10.0, log=True),
+        "reg_lambda":        trial.suggest_float("reg_lambda",        1e-4, 10.0, log=True),
         "class_weight":      "balanced",
         "random_state":      RANDOM_STATE,
         "n_jobs":            -1,
         "verbose":           -1,
     }
+
 
     splits    = make_cv_splits(
         pd.DataFrame({"label": y, "region": X["region"].values}),

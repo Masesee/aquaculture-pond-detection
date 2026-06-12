@@ -8,13 +8,13 @@ This project aims to detect aquaculture ponds by leveraging monthly temporal pro
 
 ### Key Features
 - **Regional Clustering:** Uses K-Means on coordinates to handle spatial heterogeneity (e.g., high-density vs. low-density pond regions).
-- **Log-Transformed Spatial Features:** Computes distance to the primary pond cluster centroid using a log-transformation (log1p) to reduce the leverage of distant out-of-distribution points.
+- **Flexible Spatial Features:** Support for log-transformed distance to pond cluster centroids (log1p), designed to be modular for experimental workflows.
 - **Multi-Modal Features:** Combines Sentinel-1 (VH, VV) and Sentinel-2 (10 bands) across 12 months.
 - **Spectral Indices:** Calculates NDWI, MNDWI, NDVI, NDRE, AWEInsh, NDTI (Turbidity), and re1/NIR ratios.
 - **Temporal Aggregation & Stability:** Computes 9 statistical aggregations (mean, std, percentiles, etc.) and temporal stability metrics (consecutive-month absolute change) for key indices.
-- **Automated Feature Selection:** Optional SHAP-based filtering to reduce dimensionality to the top 60 most impactful features.
-- **Hyperparameter Optimization:** Expanded Optuna sweep for LightGBM, including `n_estimators` tuning and broad search ranges.
-- **Pseudo-Labeling:** Support for iterative pseudo-labeling to leverage high-confidence test predictions for model enhancement.
+- **Automated Feature Selection:** Optional SHAP-based filtering to reduce dimensionality to the top 80 most impactful features (increased from 60 for better coverage).
+- **Hyperparameter Optimization:** Expanded Optuna sweep for LightGBM, featuring broader search ranges for `n_estimators` (up to 3000), `num_leaves`, and `max_depth`.
+- **Robust Training Logic:** Integrated Optuna best parameters into the final training cycle with automatic early-stopping management during CV.
 - **Probability Calibration:** Uses Isotonic Regression on out-of-fold (OOF) predictions to refine classification thresholds.
 
 ---

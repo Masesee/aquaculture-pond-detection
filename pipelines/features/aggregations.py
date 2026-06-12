@@ -84,18 +84,18 @@ CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
 # Pond cluster centroid — derived from region_map visual inspection.
 # The dense orange cluster sits around lon=48.85, lat=39.48.
 # Used to compute a distance proxy that is time-invariant.
-POND_CLUSTER_CENTROID = (48.85, 39.48)
+# POND_CLUSTER_CENTROID = (48.85, 39.48)
 
 
-def _distance_to_centroid(lon: pd.Series, lat: pd.Series) -> pd.Series:
-    """
-    Log-transformed distance to pond cluster centroid.
-    log1p compresses large distances, reducing leverage of OOD points.
-    """
-    dlon = lon - POND_CLUSTER_CENTROID[0]
-    dlat = lat - POND_CLUSTER_CENTROID[1]
-    raw_dist = np.sqrt(dlon**2 + dlat**2)
-    return np.log1p(raw_dist)
+# def _distance_to_centroid(lon: pd.Series, lat: pd.Series) -> pd.Series:
+#     """
+#     Log-transformed distance to pond cluster centroid.
+#     log1p compresses large distances, reducing leverage of OOD points.
+#     """
+#     dlon = lon - POND_CLUSTER_CENTROID[0]
+#     dlat = lat - POND_CLUSTER_CENTROID[1]
+#     raw_dist = np.sqrt(dlon**2 + dlat**2)
+#     return np.log1p(raw_dist)
 
 
 # ── Main feature builder ───────────────────────────────────────────────────────
@@ -185,9 +185,9 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
     features = pd.DataFrame(feature_rows, index=df.index)
 
     # ── Spatial features ──
-    features["dist_to_pond_centroid"] = _distance_to_centroid(
-        df["lon"], df["lat"]
-    ).values
+    # features["dist_to_pond_centroid"] = _distance_to_centroid(
+    #     df["lon"], df["lat"]
+    # ).values
     features["region"] = region_series.values
 
     # ── ID passthrough ──
@@ -222,7 +222,7 @@ def feature_names(exclude_id: bool = True) -> list[str]:
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")
 
-    cols.append("dist_to_pond_centroid")
+    # cols.append("dist_to_pond_centroid")
     cols.append("region")
 
     if not exclude_id:
