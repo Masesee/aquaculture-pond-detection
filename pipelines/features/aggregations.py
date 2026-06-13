@@ -45,6 +45,8 @@ PERSISTENCE_RULES: dict[str, tuple[str, str, float]] = {
     "NDVI_low_count":        ("NDVI",    "<",  0.1),
     "AWEInsh_pos_count":     ("AWEInsh", ">",  0.0),
     "SAR_diff_neg15_count":  ("SAR_diff_db", "<", -15.0),  # very negative = strong water signal
+    "SABI_pos_count":        ("SABI",    ">",  0.0),        # months where nir > red = productive water
+    "SAR_RVI_low_count":     ("SAR_RVI", "<",  0.25),      # months with very low RVI = open water SAR signal
 }
 
 
@@ -76,7 +78,9 @@ def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
 
 
 # Bands/indices to compute consecutive change features for
-CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
+# v5 originals: NDWI, MNDWI, VV, NDTI, re1_nir
+# v6 additions: SABI (algal bloom temporal stability), CI (chlorophyll-a cycles)
+CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir", "SABI", "CI"]
 
 
 # ── Spatial features ───────────────────────────────────────────────────────────

@@ -99,6 +99,66 @@ def re1_nir_ratio(df: pd.DataFrame, month: str) -> pd.Series:
     return r1 / (n + EPS)
 
 
+def sabi(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Surface Algal Bloom Index.
+    (nir - red) / (blue + green)
+    Targets algal bloom signature in productive water bodies.
+    Aquaculture ponds with dense phytoplankton → elevated SABI.
+    Clear reservoirs / rivers → low SABI.
+    Different normalization from NDVI (blue+green denominator suppresses
+    turbid-water scattering that NDVI conflates with vegetation).
+    Reference: Alawadi 2010.
+    """
+    n  = df[f"nir_{month}"].astype(float)
+    r  = df[f"red_{month}"].astype(float)
+    b  = df[f"blue_{month}"].astype(float)
+    g  = df[f"green_{month}"].astype(float)
+    return (n - r) / (b + g + EPS)
+
+
+def cdom_proxy(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Colored Dissolved Organic Matter proxy.
+    blue / red
+    Clear water: high blue, low red → high ratio (>1).
+    Turbid / organic-rich water (aquaculture, humic lakes): low ratio (<1).
+    Orthogonal to NDTI which uses (red-green)/(red+green).
+    This ratio is unbounded above, so tree models handle it naturally.
+    """
+    b = df[f"blue_{month}"].astype(float)
+    r = df[f"red_{month}"].astype(float)
+    return b / (r + EPS)
+
+
+def chlorophyll_index(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Red-Edge Chlorophyll Index (Gitelson et al.).
+    re3 / re2 - 1
+    Tracks chlorophyll-a fluorescence via the red-edge inflection point.
+    Peaks for waters with dense phytoplankton (aquaculture production season).
+    Low and stable for clear water and dry land.
+    Uses B7 (re3, ~783 nm) and B6 (re2, ~740 nm).
+    """
+    r3 = df[f"re3_{month}"].astype(float)
+    r2 = df[f"re2_{month}"].astype(float)
+    return (r3 / (r2 + EPS)) - 1.0
+
+
+def ndwi2(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    NIR–SWIR1 Normalized Difference Water Index (Gao 1996).
+    (nir - swir1) / (nir + swir1)
+    Sensitive to liquid water content in vegetation canopy and soil.
+    For open water: near 1.0. Dry bare soil: near -1.0.
+    Orthogonal to McFeeters NDWI (green-nir) because the NIR fluorescence
+    bump from algae shifts nir differently than green.
+    """
+    n  = df[f"nir_{month}"].astype(float)
+    s1 = df[f"swir1_{month}"].astype(float)
+    return (n - s1) / (n + s1 + EPS)
+
+
 # ── SAR indices ────────────────────────────────────────────────────────────────
 
 def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
@@ -113,6 +173,25 @@ def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
     return vh - vv
 
 
+def sar_rvi(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    SAR Radar Vegetation Index (Kim & van Zyl 2009).
+    Converts VH and VV from dB to linear power before computing:
+        RVI = (4 * VH_linear) / (VH_linear + VV_linear)
+    Range: [0, 1].
+    Open specular water: VH << VV in linear → RVI near 0.
+    Dense vegetation / rough surface: VH approaches VV → RVI near 1.
+    Independent from SAR_diff_db: that index stays in dB log-space;
+    RVI encodes the ratio in linear power space — a different functional
+    form that may separate edge cases where log-space diff is ambiguous.
+    """
+    vh_db = df[f"VH_{month}"].astype(float)
+    vv_db = df[f"VV_{month}"].astype(float)
+    vh_lin = 10.0 ** (vh_db / 10.0)   # dB → linear power
+    vv_lin = 10.0 ** (vv_db / 10.0)
+    return (4.0 * vh_lin) / (vh_lin + vv_lin + EPS)
+
+
 # ── Index registry ─────────────────────────────────────────────────────────────
 # Maps index name → function. Consumed by aggregations.py.
 
@@ -125,4 +204,10 @@ INDEX_FN_MAP: dict[str, callable] = {
     "SAR_diff_db":  sar_diff_db,
     "NDTI":         ndti,
     "re1_nir":      re1_nir_ratio,
+    # v6 additions — physics-motivated indices for aquaculture vs other water
+    "SABI":         sabi,
+    "CDOM":         cdom_proxy,
+    "CI":           chlorophyll_index,
+    "NDWI2":        ndwi2,
+    "SAR_RVI":      sar_rvi,
 }
