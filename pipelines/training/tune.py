@@ -38,25 +38,28 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_SPLITS      = 5
 RANDOM_STATE  = 42
-N_TRIALS      = 150
+N_TRIALS      = 200
 STUDY_NAME    = "lgbm_aquaculture"
 STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study.db'}"
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
+    # Sub 22 best: n_est=870, lr=0.1076, leaves=102, depth=8,
+    #              min_child=85, subsample=0.647, colsample=0.373,
+    #              reg_alpha=1.3e-4, reg_lambda=1.3e-3
     params = {
         "objective":         "binary",
         "boosting_type":     "gbdt",
-        "n_estimators":      trial.suggest_int(  "n_estimators",      500,  3000),
-        "learning_rate":     trial.suggest_float("learning_rate",     0.01, 0.15, log=True),
-        "num_leaves":        trial.suggest_int(  "num_leaves",        31,   255),
-        "max_depth":         trial.suggest_int(  "max_depth",         3,    15),
-        "min_child_samples": trial.suggest_int(  "min_child_samples", 20,   120),
-        "subsample":         trial.suggest_float("subsample",         0.5,  1.0),
+        "n_estimators":      trial.suggest_int(  "n_estimators",      750,    980),
+        "learning_rate":     trial.suggest_float("learning_rate",      0.085,  0.130, log=True),
+        "num_leaves":        trial.suggest_int(  "num_leaves",         85,     120),
+        "max_depth":         trial.suggest_int(  "max_depth",          6,      10),
+        "min_child_samples": trial.suggest_int(  "min_child_samples",  70,     100),
+        "subsample":         trial.suggest_float("subsample",          0.55,   0.75),
         "subsample_freq":    1,
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",  0.3,  1.0),
-        "reg_alpha":         trial.suggest_float("reg_alpha",         1e-4, 10.0, log=True),
-        "reg_lambda":        trial.suggest_float("reg_lambda",        1e-4, 10.0, log=True),
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.32,   0.43),
+        "reg_alpha":         trial.suggest_float("reg_alpha",          5e-5,   5e-4,  log=True),
+        "reg_lambda":        trial.suggest_float("reg_lambda",         4e-4,   5e-3,  log=True),
         "class_weight":      "balanced",
         "random_state":      RANDOM_STATE,
         "n_jobs":            -1,
