@@ -69,3 +69,4 @@ experiments/logs/
 # Agent Context
 .gemini/
 .claude/
+.agents/
