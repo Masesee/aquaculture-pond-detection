@@ -39,8 +39,10 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 N_SPLITS      = 5
 RANDOM_STATE  = 42
 N_TRIALS      = 200
-STUDY_NAME    = "lgbm_aquaculture"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study.db'}"
+# v6 study: fresh name so v5 (203-feature) trials don't bias the sampler.
+# Do NOT set load_if_exists=True on a new feature version — start clean.
+STUDY_NAME    = "lgbm_aquaculture_v6"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6.db'}"
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
@@ -57,10 +59,15 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
         "min_child_samples": trial.suggest_int(  "min_child_samples",  70,     100),
         "subsample":         trial.suggest_float("subsample",          0.55,   0.75),
         "subsample_freq":    1,
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.32,   0.43),
+        # v6: 256 features. Widen colsample range so per-tree count stays
+        # near Sub 22's ~76 features. [0.25, 0.42] -> 64-108 features/tree.
+        # The old [0.32, 0.43] was correct for 203 features (65-87/tree).
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.25,   0.42),
         "reg_alpha":         trial.suggest_float("reg_alpha",          5e-5,   5e-4,  log=True),
         "reg_lambda":        trial.suggest_float("reg_lambda",         4e-4,   5e-3,  log=True),
-        "class_weight":      "balanced",
+        # class_weight=None matches train.py exactly — eliminates the
+        # tuning/training objective inconsistency present since Sub 22.
+        "class_weight":      None,
         "random_state":      RANDOM_STATE,
         "n_jobs":            -1,
         "verbose":           -1,
@@ -99,10 +106,10 @@ def main() -> None:
 
     print(f"\n=== Running Optuna ({N_TRIALS} trials) ===")
     study = optuna.create_study(
-        study_name  = STUDY_NAME,
-        storage     = STORAGE,
-        direction   = "maximize",
-        load_if_exists = True,
+        study_name     = STUDY_NAME,
+        storage        = STORAGE,
+        direction      = "maximize",
+        load_if_exists = True,   # safe: v6 DB is a fresh file
     )
     study.optimize(
         lambda trial: objective(trial, X, y),
