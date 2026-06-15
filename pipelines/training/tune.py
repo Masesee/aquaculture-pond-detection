@@ -60,10 +60,10 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
         "min_child_samples": trial.suggest_int(  "min_child_samples",  70,     100),
         "subsample":         trial.suggest_float("subsample",          0.55,   0.75),
         "subsample_freq":    1,
-        # v6: 256 features. Widen colsample range so per-tree count stays
-        # near Sub 22's ~76 features. [0.25, 0.42] -> 64-108 features/tree.
-        # The old [0.32, 0.43] was correct for 203 features (65-87/tree).
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.25,   0.42),
+        # v6.2: 295 features. Target ~76 features/tree (same as Sub 22).
+        # 76/295 = 0.258. Range [0.22, 0.36] -> 65-106 features/tree.
+        # Do NOT go above 0.38: at 295 feat that gives 112/tree -> pond over-prediction.
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.22,   0.36),
         "reg_alpha":         trial.suggest_float("reg_alpha",          5e-5,   5e-4,  log=True),
         "reg_lambda":        trial.suggest_float("reg_lambda",         4e-4,   5e-3,  log=True),
         # class_weight=None matches train.py exactly — eliminates the
