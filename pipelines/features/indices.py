@@ -206,7 +206,7 @@ INDEX_FN_MAP: dict[str, callable] = {
     "re1_nir":      re1_nir_ratio,
     # v6 additions — physics-motivated indices for aquaculture vs other water
     "SABI":         sabi,
-    "CDOM":         cdom_proxy,
+    # CDOM removed: SHAP total=0.574 (rank 70+), adds collinear noise
     "CI":           chlorophyll_index,
     "NDWI2":        ndwi2,
     "SAR_RVI":      sar_rvi,
