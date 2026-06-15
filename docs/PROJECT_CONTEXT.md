@@ -112,8 +112,14 @@ Index functions are pure (no side effects, no state).
 | SAR_diff_db | VH - VV | Very negative for specular water surfaces. Less negative for rough terrain/vegetation. |
 | NDTI | (red - green) / (red + green) | Turbidity index. POSITIVE for turbid aquaculture water (biological load). NEGATIVE for clear water bodies. |
 | re1_nir | re1 / nir | Red edge to NIR ratio. Elevated for algae/phytoplankton in aquaculture ponds. Near 1.0 signals chlorophyll fluorescence. |
+| NDWI2 | (nir - swir1) / (nir + swir1) | NIR-SWIR1 water index (Gao 1996). Strongest new addition in v6.1 — SHAP rank #2 (NDWI2__std), total SHAP=2.725. |
+| SAR_RVI | 4*VH_lin / (VH_lin + VV_lin) | Linear-power SAR vegetation index. Differentiates flooded vegetation from open water. SHAP rank #6 (SAR_RVI__mean), total SHAP=1.697. |
+| SABI | (nir - red) / (blue + green) | Surface Algal Bloom Index. Sensitive to algal blooms in productive water. SHAP rank #17, total SHAP=1.146. |
+| CI | re3 / re2 - 1 | Red-Edge Chlorophyll Index. Captures chlorophyll-a fluorescence signal. SHAP total=0.736, rank ~61+. |
 
 All divide-by-zero cases are protected by `EPS = 1e-9`.
+
+**Removed index (v6.1):** `CDOM` (`blue/red`) was trialled in v6 but removed in v6.1 after SHAP analysis confirmed it was noise (total SHAP=0.574, max rank #70). Do not re-add.
 
 **NDTI was the single most impactful feature addition in the entire project** (Sub 12: +0.013 combined
 score, +0.009 F1 from adding NDTI alone). The physical reason: fish waste and algae in shallow
@@ -142,7 +148,7 @@ Feature name convention: `{band_or_index}__{agg_suffix}`, e.g. `NDWI__max`, `VV_
 For 5 selected bands/indices, 3 additional statistics over 11 consecutive-month absolute differences
 (|value[t+1] - value[t]| for t in 1..11):
 
-Targets: `NDWI`, `MNDWI`, `VV`, `NDTI`, `re1_nir`
+Targets: `NDWI`, `MNDWI`, `VV`, `NDTI`, `re1_nir`, `SABI`, `CI` *(SABI and CI added in v6.1)*
 
 Per target:
 - `{target}__max_consec_change` — worst single-month jump
@@ -160,6 +166,8 @@ Binary threshold counts over 12 months:
 | `NDVI_low_count` | Months where NDVI < 0.1 |
 | `AWEInsh_pos_count` | Months where AWEInsh > 0 |
 | `SAR_diff_neg15_count` | Months where SAR_diff_db < -15 (very strong water SAR signal) |
+| `SABI_pos_count` | Months where SABI > 0 *(added v6.1)* |
+| `SAR_RVI_low_count` | Months where SAR_RVI < threshold indicating low vegetation fraction *(added v6.1)* |
 
 ### 4.5 Cross-Index Water Agreement Features
 
@@ -189,6 +197,7 @@ reason.
 | v3 | 180 | + consecutive-change features (NDWI, MNDWI, VV) + cross-index water agreement |
 | v4 | 204 | + NDTI + re1_nir + their 9 aggregations + 3 stability features each |
 | v5 (final) | 203 | v4 minus dist_to_pond_centroid |
+| v6.1 | 247 | v5 + NDWI2 + SAR_RVI + SABI + CI (all × 9 aggs) + stability for SABI/CI + 2 persistence counts - CDOM |
 
 ### 4.9 Optional SHAP Filter
 
@@ -388,7 +397,7 @@ refinement. Do not tighten further. ±10% is over-constrained.
 
 ---
 
-## 9. Complete Submission History (25 Submissions)
+## 9. Complete Submission History (26 Submissions)
 
 All scores are on the Zindi leaderboard (test period generalization).
 
@@ -419,6 +428,9 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 23 | Narrow Optuna r2, resumed study | 0.9772 | 0.9948 | 0.9655 | 353 | Resumed Optuna study, 200 more trials | Better OOF but worse LB; same param neighborhood |
 | 24 | Narrow Optuna r3, tighter bounds | 0.9650 | 0.9947 | 0.9451 | 361 | ±10% bounds, fresh study | Over-predicted ponds 351→361; params overfitting to training pond distribution |
 | 25 | Prob avg sub22 + sub19 | 0.9748 | 0.9949 | 0.9614 | — | Probability averaging of two best | Sub19 errors are subset of sub22 errors; averaging dilutes, doesn't resolve |
+| 26 | v6.1 baseline, 247 feat, Sub22 params | 0.9789 | 0.9923 | 0.9700 | 352 | New indices NDWI2+SAR_RVI+SABI+CI | F1 improved +0.000260 vs Sub22, AUC dropped -0.002587. colsample=0.373 was tuned for 203 feat, gives 92/tree at 247 feat (too many). Net tiny regression. |
+
+**Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
 ---
 
@@ -560,7 +572,7 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 ---
 
-## 13. Key Technical Lessons Extracted from 25 Submissions
+## 13. Key Technical Lessons Extracted from 26 Submissions
 
 1. **One change per submission is non-negotiable.** Subs 2 and 5–6 were undiagnosable because
    multiple things changed. Every regression that took more than one submission to diagnose
@@ -593,7 +605,8 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 9. **colsample_bytree is the most important hyperparameter.** Reducing from ~1.0 to 0.373 forces
    feature diversity per tree. With 203 features, high colsample makes all trees converge to
-   NDWI-heavy splits.
+   NDWI-heavy splits. When the feature count grows (e.g., 247 in v6.1), colsample needs re-tuning:
+   0.373 × 247 ≈ 92 features/tree, which is too many and defeats the diversity objective.
 
 10. **The n_estimators bug in train.py.** Final fit used the early-stopping mean iteration count
     × 1.05 instead of the Optuna n_estimators. This was fixed between Sub 16 and Sub 18.
@@ -605,11 +618,74 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 12. **Probability averaging does not resolve hard cases.** The same ~59 samples are wrong in all
     model variants tried. Averaging dilutes confident correct predictions rather than fixing errors.
 
+13. **SHAP filter auto-trigger is a silent danger.** The build_features pipeline auto-applies a
+    SHAP filter when `outputs/evaluation/shap_importance.csv` exists. After adding new features and
+    running SHAP on a different model, the old SHAP file nearly caused a stale-filter regression
+    (same mistake as Subs 2 and 20). Protocol: always rename or delete `shap_importance.csv` before
+    rebuilding features with any model change. Only recompute SHAP after training the new model.
+
+14. **Optuna study contamination across feature versions.** When `tune.py` uses `load_if_exists=True`
+    with the same study name/DB, trials from different feature sets get mixed. The v6 study
+    (`optuna_study_v6.db`) was contaminated: trial #106 (best) was evaluated on 256 features, but
+    subsequent 200 trials ran on 247 features. Mixed-feature-set studies produce unreliable param
+    rankings. Fix: always use a new study name AND new DB file for each new feature version.
+
+15. **Same Optuna basin found repeatedly.** The v6 tuner (200 trials) and the v6.1 tuner (200 more
+    trials on contaminated DB) both converged on the same best trial #106: n_est=944, lr=0.1206,
+    leaves=91, depth=6, colsample=0.275. Two independent runs finding the same params suggests a
+    genuine local minimum for this feature space, but it is NOT better than Sub 22 on the leaderboard.
+
 ---
 
-## 14. Current Repository State (git status at time of context generation)
+## 14. OOF Hard Case Analysis (v6.1 model)
 
-**Branch:** `sequence-model`
+**Source:** `pipelines/evaluation/hard_case_analysis.py`
+
+The v6.1 model (247 features, Sub 22 params) has **13 wrong OOF predictions**:
+- TP=384, TN=566, FP=4, FN=9
+
+### Error Groups by Probability Margin
+
+| Group | N | Prob | Margin | Pattern |
+|---|---|---|---|---|
+| Near-boundary FN | 3 | 0.375 | 0.125 | Ponds just below 0.5 |
+| Borderline FP+FN | 6 | 0.667 | 0.167 | Both types near boundary |
+| Confident FP | 3 | 0.900 | 0.400 | Non-ponds with strong pond-like signals |
+| Confident FN | 4 | 0.024–0.048 | 0.45+ | Ponds with very atypical spectral signatures |
+
+### Most Discriminating Features (hard vs correct)
+
+1. `re1_nir__max_consec_change` (0.887 normalized diff)
+2. `re1_nir__mean_consec_change` (0.753)
+3. `region` (0.671)
+4. `NDWI__max_consec_change` (0.658)
+5. `NDTI__monotone_fraction` (0.626)
+
+### FP Signature (false alarms, n=4)
+
+- All in region 1 (high-density zone)
+- `MNDWI__cv` = 2.53 vs TN mean 0.36 — extreme optical variability
+- These are seasonal wetlands or rice paddies that look like ponds in certain months
+
+### FN Signature (missed ponds, n=9)
+
+- `water_index_unanimous` = 0.630 vs TP mean 0.327
+- `SAR_RVI__mean` = 0.501 vs TP mean 0.367
+- These ponds were likely drained/harvested during part of the training period, giving them unusual temporal patterns
+
+### Implication
+
+The hard cases have temporal structure that the current aggregations do not fully capture:
+- **FPs** are seasonally variable (wet some months, dry others)
+- **FNs** are ponds with atypical seasonal management (draining cycles)
+
+Quarter-level aggregations are the motivated fix: they would capture within-year seasonal transitions that month-level statistics collapse.
+
+---
+
+## 15. Current Repository State (git status at time of context generation)
+
+**Branch:** `explore/new-ideas`
 
 **Modified tracked files:**
 - `.gitignore` — updated to exclude data/processed and outputs (not committed)
@@ -617,24 +693,27 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 - `pipelines/training/tune.py` — updated to narrow ±20% Optuna search (not committed)
 
 **Untracked files (not yet staged):**
-- `docs/EXPERIMENT_LOG.md` — full experiment log (all 25 submissions, key learnings, feature timeline, final config)
+- `docs/EXPERIMENT_LOG.md` — full experiment log (all 26 submissions, key learnings, feature timeline, final config)
 - `docs/MODEL_SCORECARD.md` — single-page model identity, performance, feature summary, training procedure
 - `pipelines/training/sequence_model.py` — GRU model (experimental, Sub 21 artifact)
 - `pipelines/training/tests/test_sequence_model.py` — GRU unit tests
 
-**Commit history (most recent first):**
-1. `00b0e16` — feat(pipeline): enhance training robustness and expand hyperparameter search
-2. `78f2801` — feat: add NDTI/re1-NIR indices, stability features, and expanded tuning
-3. `9d79d93` — test: implement pipeline integrity smoke test and refine documentation
-4. `5bda16f` — feat: implement iterative refinement cycle and automated tuning
-5. `70771c5` — feat: initial project setup for GeoAI Aquaculture Pond Identification
+**Commit history on `explore/new-ideas` (most recent first):**
+1. `63c9e34` — feat(eval): hard case analysis script
+2. `5b13ca9` — feat(features): v6.1 - drop CDOM index (SHAP noise), keep NDWI2+SAR_RVI+SABI+CI
+3. `41315d0` — fix(tune): match class_weight=None to train.py, fresh v6 study name
+4. `c628593` — feat(features): add 5 physics-motivated indices for v6 feature set
 
-All of `.gitignore`, `README.md`, `tune.py`, `docs/`, `sequence_model.py`, and
-`test_sequence_model.py` need to be staged and committed.
+**Prior commits (main branch lineage):**
+5. `00b0e16` — feat(pipeline): enhance training robustness and expand hyperparameter search
+6. `78f2801` — feat: add NDTI/re1-NIR indices, stability features, and expanded tuning
+7. `9d79d93` — test: implement pipeline integrity smoke test and refine documentation
+8. `5bda16f` — feat: implement iterative refinement cycle and automated tuning
+9. `70771c5` — feat: initial project setup for GeoAI Aquaculture Pond Identification
 
 ---
 
-## 15. Pipeline File Map
+## 16. Pipeline File Map
 
 ```
 aquaculture-pond-detection/
@@ -700,8 +779,9 @@ aquaculture-pond-detection/
 │   │   ├── ensemble.py        # Stacking ensemble (tried in Sub 7, not in use)
 │   │   └── base_learners.py   # RF and LR base learners for stacking
 │   └── evaluation/
-│       ├── shap_analysis.py   # SHAP importance computation and plots
-│       └── metrics.py         # combined_score function (0.6*F1 + 0.4*AUC)
+│       ├── shap_analysis.py      # SHAP importance computation and plots
+│       ├── hard_case_analysis.py # OOF hard case analysis (v6.1+)
+│       └── metrics.py            # combined_score function (0.6*F1 + 0.4*AUC)
 │
 ├── requirements.txt
 ├── pyproject.toml
@@ -710,7 +790,7 @@ aquaculture-pond-detection/
 
 ---
 
-## 16. Reproduction Commands
+## 17. Reproduction Commands
 
 To reproduce Sub 22 (best submission, 0.9798):
 
@@ -752,7 +832,7 @@ python -m pipelines.training.train
 
 ---
 
-## 17. Known Open Problems
+## 18. Known Open Problems
 
 1. **The same ~59 test samples are consistently misclassified** across all model variants.
    No attempted intervention (pseudo-labeling, stacking, GRU, averaging) has resolved them.
@@ -769,18 +849,27 @@ python -m pipelines.training.train
    best_params.json was tuned with a slightly different objective than the final model.
    Whether fixing this would improve or harm results is unknown.
 
-4. **GRU adds no value at current OOF level.** The GRU needs to outperform LightGBM on the
+4. **The same ~59 test samples remain consistently misclassified.** OOF analysis on the training
+   set (Section 14) reveals 13 wrong predictions with clear temporal pattern signatures: FPs are
+   seasonal water bodies with high monthly variability, FNs are ponds with unusual management-driven
+   temporal patterns (draining cycles). Quarter-level aggregations are the next planned intervention.
+
+5. **GRU adds no value at current OOF level.** The GRU needs to outperform LightGBM on the
    OOF to add orthogonal signal. At F1=0.9744 vs 0.9821, it is worse. Possible future
    directions: larger hidden_size, more channels, attention mechanism — but data size limits
    what is feasible.
 
-5. **No spatial generalization test.** The project only measures temporal generalization
+6. **No spatial generalization test.** The project only measures temporal generalization
    (train period A → test period B). The two regions are both in the training set. A true
    geographic generalization test (train on region 1, test on region 0) has not been done.
 
+7. **Optuna study contamination risk.** The `optuna_study_v6.db` contains mixed trials from
+   256-feature (v6) and 247-feature (v6.1) runs. For the next tune run, use study name
+   `lgbm_aquaculture_v6_1` and a fresh DB `optuna_study_v6_1.db`.
+
 ---
 
-## 18. Tech Stack
+## 19. Tech Stack
 
 | Layer | Library | Version constraint |
 |---|---|---|
