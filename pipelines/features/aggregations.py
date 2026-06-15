@@ -83,6 +83,50 @@ def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
 CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir", "SABI", "CI"]
 
 
+# ── Quarter aggregations ───────────────────────────────────────────────────────
+# Hard case analysis showed FPs are seasonal water bodies (high monthly
+# variability within a season) and FNs are ponds with management-driven
+# draining cycles. Month-level stats can't distinguish these; quarter stats can.
+#
+# MONTHS order: ["01", "02", ..., "12"] — indices 0..11
+# Q1 = Jan–Mar (indices 0–2) : dry season / winter
+# Q2 = Apr–Jun (indices 3–5) : spring / production ramp-up
+# Q3 = Jul–Sep (indices 6–8) : peak production / wet season
+# Q4 = Oct–Dec (indices 9–11): harvest / drawdown
+QUARTER_SLICES: dict[str, slice] = {
+    "Q1": slice(0, 3),
+    "Q2": slice(3, 6),
+    "Q3": slice(6, 9),
+    "Q4": slice(9, 12),
+}
+
+# Indices and bands to compute quarter features for.
+# Selected based on SHAP importance (high signal) and physical seasonality:
+#   NDWI / MNDWI : distinguish year-round water (ponds) from seasonal wetlands
+#   NDTI         : turbidity peaks in production season — temporal signature
+#   SAR_RVI      : surface roughness changes when ponds are drained/filled
+#   re1_nir      : red-edge ratio tracks algal bloom seasonality
+#   SABI         : algal bloom seasonal amplitude
+QUARTER_TARGETS: list[str] = ["NDWI", "MNDWI", "NDTI", "SAR_RVI", "re1_nir", "SABI"]
+
+
+def _quarter_aggs(monthly_values: np.ndarray) -> dict[str, float]:
+    """
+    Given a (12,) array of monthly values, compute mean and max for each
+    calendar quarter. Returns 8 features: {Q1,Q2,Q3,Q4} x {mean,max}.
+
+    Rationale: mean captures average water/algal state in the season;
+    max captures peak signal (e.g. maximum turbidity in production quarter).
+    Both are robust summary statistics that transfer across time periods.
+    """
+    out: dict[str, float] = {}
+    for q_name, q_slice in QUARTER_SLICES.items():
+        q_vals = monthly_values[q_slice]
+        out[f"{q_name}_mean"] = float(np.mean(q_vals))
+        out[f"{q_name}_max"]  = float(np.max(q_vals))
+    return out
+
+
 # ── Spatial features ───────────────────────────────────────────────────────────
 
 # Pond cluster centroid — derived from region_map visual inspection.
@@ -173,6 +217,16 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
             for change_name, change_val in changes.items():
                 row[f"{target}__{change_name}"] = change_val
 
+        # ── Quarter aggregations ──
+        for target in QUARTER_TARGETS:
+            if target in INDEX_FN_MAP:
+                vals = monthly_index_values[target][i]
+            else:
+                vals = monthly_band_values[target][i]
+            q_aggs = _quarter_aggs(vals)
+            for q_name, q_val in q_aggs.items():
+                row[f"{target}__{q_name}"] = q_val
+
         # ── Cross-index water agreement ──
         ndwi_monthly  = monthly_index_values["NDWI"][i]
         mndwi_monthly = monthly_index_values["MNDWI"][i]
@@ -222,6 +276,11 @@ def feature_names(exclude_id: bool = True) -> list[str]:
     for target in CONSEC_CHANGE_TARGETS:
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
             cols.append(f"{target}__{suffix}")
+
+    for target in QUARTER_TARGETS:
+        for q_name in QUARTER_SLICES:
+            for stat in ["mean", "max"]:
+                cols.append(f"{target}__{q_name}_{stat}")
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")

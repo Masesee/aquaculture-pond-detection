@@ -39,10 +39,11 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 N_SPLITS      = 5
 RANDOM_STATE  = 42
 N_TRIALS      = 200
-# v6 study: fresh name so v5 (203-feature) trials don't bias the sampler.
-# Do NOT set load_if_exists=True on a new feature version — start clean.
-STUDY_NAME    = "lgbm_aquaculture_v6"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6.db'}"
+# v6.2 study: fresh name for quarter-aggregation feature set (287 features).
+# v6 DB (optuna_study_v6.db) was contaminated: mixed 256 + 247 feature trials.
+# Always create a new DB per feature version to keep trial history clean.
+STUDY_NAME    = "lgbm_aquaculture_v6_2"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6_2.db'}"
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
