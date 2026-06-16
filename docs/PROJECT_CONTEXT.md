@@ -431,6 +431,7 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 25 | Prob avg sub22 + sub19 | 0.9748 | 0.9949 | 0.9614 | — | Probability averaging of two best | Sub19 errors are subset of sub22 errors; averaging dilutes, doesn't resolve |
 | 26 | v6.1 baseline, 247 feat, Sub22 params | 0.9789 | 0.9923 | 0.9700 | 352 | New indices NDWI2+SAR_RVI+SABI+CI | F1 improved +0.000260 vs Sub22, AUC dropped -0.002587. colsample=0.373 was tuned for 203 feat, gives 92/tree at 247 feat (too many). Net tiny regression. |
 | 27 | v7, 295 feat, Optuna re-tuned (n_est=893, colsample=0.339) | 0.9599 | 0.9923 | 0.9700 | 356 | +48 quarterly agg features (Q1–Q4 mean+max for NDWI, MNDWI, NDTI, re1_nir, SAR_RVI, SABI) | OOF=0.9908 but LB=0.9599 — OOF-to-LB gap of 0.031 (3× the typical 0.011). Quarterly features overfit to the training time period; they do not transfer to the test period. DO NOT use quarterly aggregations. |
+| 28 | v6.1, 247 feat, Optuna v6.1 (n_est=900, colsample=0.264) | 0.9702 | 0.9946 | 0.9540 | 363 | Fresh Optuna sweep on 247 features, colsample settled at 0.264 (65/tree) | OOF-to-LB gap 0.020 (2× normal). 363 ponds = highest ever, worst F1 since Sub 18. colsample=0.264 is below the optimal floor of ~76/tree. Tuner minimises OOF variance by restricting features, but this causes over-prediction on the unseen test period. |
 
 **Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
@@ -574,7 +575,7 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 ---
 
-## 13. Key Technical Lessons Extracted from 27 Submissions
+## 13. Key Technical Lessons Extracted from 28 Submissions
 
 1. **One change per submission is non-negotiable.** Subs 2 and 5–6 were undiagnosable because
    multiple things changed. Every regression that took more than one submission to diagnose
@@ -647,6 +648,14 @@ confirmed this — score dropped from 0.9720 to 0.9660.
     agricultural state. Annual aggregations (mean, std, etc.) are time-period invariant; quarterly
     splits are not. The correct way to capture seasonal transitions is through consecutive-change
     stability features (already in the pipeline), not fixed quarterly bins.
+
+17. **colsample has a floor: do not go below ~0.30 at 247 features (76/tree).** Sub 28 used
+    colsample=0.264 (65/tree) found by Optuna on the OOF objective. LB=0.9702, ponds=363 (worst
+    F1 since Sub 18). The tuner minimises OOF variance by restricting features per tree, but below
+    the floor this causes over-prediction on the test period. The proven optimal is ~76 features/tree
+    (Sub 22: 0.373×203=76). For 247 features that is colsample≈0.308. For any feature set, the
+    colsample floor is: 76 / n_features. Do not let Optuna go below this. Constrain the lower
+    bound of the colsample search range to max(0.245, 76/n_features).
 
 ---
 
