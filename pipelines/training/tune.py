@@ -43,8 +43,8 @@ N_TRIALS      = 200
 # v6.2/v7 quarterly features were confirmed harmful (Sub 27: LB=0.9599 vs 0.9798).
 # v6 DB (optuna_study_v6.db) was contaminated: mixed 256 + 247 feature trials.
 # Always create a new DB per feature version to keep trial history clean.
-STUDY_NAME    = "lgbm_aquaculture_v6_1"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6_1.db'}"
+STUDY_NAME    = "lgbm_aquaculture_v6_1b"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6_1b.db'}"
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
