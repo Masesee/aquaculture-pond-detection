@@ -21,9 +21,6 @@ from pipelines.features.aggregations import (
     PERSISTENCE_RULES,
     _consecutive_changes,
     CONSEC_CHANGE_TARGETS,
-    _quarter_aggs,
-    QUARTER_TARGETS,
-    QUARTER_SLICES,
 )
 
 
@@ -194,82 +191,4 @@ def test_consec_change_features_in_matrix(minimal_raw_df, minimal_regions):
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
             col = f"{target}__{suffix}"
             assert col in result.columns, f"Missing: {col}"
-            assert not result[col].isna().any()
-
-
-# ── Quarter aggregation tests ────────────────────────────────────────────────────────
-
-def test_quarter_aggs_output_keys():
-    """_quarter_aggs must return exactly 8 keys: Q1-Q4 x mean/max."""
-    vals = np.arange(12, dtype=float)  # 0..11
-    result = _quarter_aggs(vals)
-    expected_keys = {
-        "Q1_mean", "Q1_max",
-        "Q2_mean", "Q2_max",
-        "Q3_mean", "Q3_max",
-        "Q4_mean", "Q4_max",
-    }
-    assert set(result.keys()) == expected_keys
-
-
-def test_quarter_aggs_correct_slicing():
-    """
-    vals = [0,1,2, 3,4,5, 6,7,8, 9,10,11]
-    Q1 (months 0-2) mean = 1.0, max = 2.0
-    Q3 (months 6-8) mean = 7.0, max = 8.0
-    """
-    vals = np.arange(12, dtype=float)
-    result = _quarter_aggs(vals)
-    assert result["Q1_mean"] == pytest.approx(1.0)
-    assert result["Q1_max"]  == pytest.approx(2.0)
-    assert result["Q3_mean"] == pytest.approx(7.0)
-    assert result["Q3_max"]  == pytest.approx(8.0)
-    assert result["Q4_mean"] == pytest.approx(10.0)
-    assert result["Q4_max"]  == pytest.approx(11.0)
-
-
-def test_quarter_aggs_seasonal_contrast():
-    """
-    Year-round water: all 12 months positive NDWI.
-    All quarter means should be positive.
-    Seasonal water: only Q3 positive (wet season), Q1 negative (dry).
-    Q1_mean < 0, Q3_mean > 0 — the model can now distinguish them.
-    """
-    # Year-round pond
-    pond_vals = np.full(12, 0.4)
-    pond_q = _quarter_aggs(pond_vals)
-    assert pond_q["Q1_mean"] > 0
-    assert pond_q["Q3_mean"] > 0
-
-    # Seasonal wetland: positive only in months 6-8 (Q3), negative otherwise
-    wetland_vals = np.array([-0.2, -0.2, -0.2,
-                             -0.1, -0.1, 0.1,
-                              0.5,  0.5,  0.5,
-                             0.1, -0.1, -0.2])
-    wetland_q = _quarter_aggs(wetland_vals)
-    assert wetland_q["Q1_mean"] < 0, "Dry-season wetland should have negative Q1 NDWI"
-    assert wetland_q["Q3_mean"] > 0, "Wet-season wetland should have positive Q3 NDWI"
-    # The contrast (Q3 - Q1) should be large
-    contrast = wetland_q["Q3_mean"] - wetland_q["Q1_mean"]
-    assert contrast > 0.5, f"Expected large seasonal contrast, got {contrast:.3f}"
-
-
-def test_quarter_features_in_matrix(minimal_raw_df, minimal_regions):
-    """All quarter columns for all QUARTER_TARGETS must be present and NaN-free."""
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
-    for target in QUARTER_TARGETS:
-        for q_name in QUARTER_SLICES:
-            for stat in ["mean", "max"]:
-                col = f"{target}__{q_name}_{stat}"
-                assert col in result.columns, f"Missing quarter feature: {col}"
-                assert not result[col].isna().any(), f"NaN in: {col}"
-
-
-def test_quarter_features_in_feature_names():
-    """feature_names() must include all quarter features."""
-    names = feature_names()
-    for target in QUARTER_TARGETS:
-        for q_name in QUARTER_SLICES:
-            for stat in ["mean", "max"]:
-                expected = f"{target}__{q_name}_{stat}"
-                assert expected in names, f"Missing from feature_names(): {expected}"
+            assert not result[col].isna().any()

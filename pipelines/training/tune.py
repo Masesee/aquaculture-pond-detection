@@ -39,11 +39,12 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 N_SPLITS      = 5
 RANDOM_STATE  = 42
 N_TRIALS      = 200
-# v6.2 study: fresh name for quarter-aggregation feature set (287 features).
+# v6.1 study: fresh name for the 247-feature set.
+# v6.2/v7 quarterly features were confirmed harmful (Sub 27: LB=0.9599 vs 0.9798).
 # v6 DB (optuna_study_v6.db) was contaminated: mixed 256 + 247 feature trials.
 # Always create a new DB per feature version to keep trial history clean.
-STUDY_NAME    = "lgbm_aquaculture_v6_2"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6_2.db'}"
+STUDY_NAME    = "lgbm_aquaculture_v6_1"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_v6_1.db'}"
 
 
 def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
@@ -60,10 +61,10 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
         "min_child_samples": trial.suggest_int(  "min_child_samples",  70,     100),
         "subsample":         trial.suggest_float("subsample",          0.55,   0.75),
         "subsample_freq":    1,
-        # v6.2: 295 features. Target ~76 features/tree (same as Sub 22).
-        # 76/295 = 0.258. Range [0.22, 0.36] -> 65-106 features/tree.
-        # Do NOT go above 0.38: at 295 feat that gives 112/tree -> pond over-prediction.
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.22,   0.36),
+        # v6.1: 247 features. Target ~76 features/tree (same as Sub 22).
+        # 76/247 = 0.308. Range [0.245, 0.370] → 61–91 features/tree.
+        # Sub 22 colsample=0.373 gave 76/tree at 203 feat; rescale proportionally.
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.245,  0.370),
         "reg_alpha":         trial.suggest_float("reg_alpha",          5e-5,   5e-4,  log=True),
         "reg_lambda":        trial.suggest_float("reg_lambda",         4e-4,   5e-3,  log=True),
         # class_weight=None matches train.py exactly — eliminates the
