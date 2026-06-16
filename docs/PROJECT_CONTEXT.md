@@ -198,6 +198,7 @@ reason.
 | v4 | 204 | + NDTI + re1_nir + their 9 aggregations + 3 stability features each |
 | v5 (final) | 203 | v4 minus dist_to_pond_centroid |
 | v6.1 | 247 | v5 + NDWI2 + SAR_RVI + SABI + CI (all × 9 aggs) + stability for SABI/CI + 2 persistence counts - CDOM |
+| v7 | 295 | v6.1 + quarterly aggregations for 6 indices (NDWI, MNDWI, NDTI, re1_nir, SAR_RVI, SABI): Q1–Q4 mean and max (48 features). Sub 27 confirmed this HURT leaderboard: OOF-to-LB gap 0.031 (3× normal). Do not use. |
 
 ### 4.9 Optional SHAP Filter
 
@@ -429,6 +430,7 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 24 | Narrow Optuna r3, tighter bounds | 0.9650 | 0.9947 | 0.9451 | 361 | ±10% bounds, fresh study | Over-predicted ponds 351→361; params overfitting to training pond distribution |
 | 25 | Prob avg sub22 + sub19 | 0.9748 | 0.9949 | 0.9614 | — | Probability averaging of two best | Sub19 errors are subset of sub22 errors; averaging dilutes, doesn't resolve |
 | 26 | v6.1 baseline, 247 feat, Sub22 params | 0.9789 | 0.9923 | 0.9700 | 352 | New indices NDWI2+SAR_RVI+SABI+CI | F1 improved +0.000260 vs Sub22, AUC dropped -0.002587. colsample=0.373 was tuned for 203 feat, gives 92/tree at 247 feat (too many). Net tiny regression. |
+| 27 | v7, 295 feat, Optuna re-tuned (n_est=893, colsample=0.339) | 0.9599 | 0.9923 | 0.9700 | 356 | +48 quarterly agg features (Q1–Q4 mean+max for NDWI, MNDWI, NDTI, re1_nir, SAR_RVI, SABI) | OOF=0.9908 but LB=0.9599 — OOF-to-LB gap of 0.031 (3× the typical 0.011). Quarterly features overfit to the training time period; they do not transfer to the test period. DO NOT use quarterly aggregations. |
 
 **Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
@@ -572,15 +574,16 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 ---
 
-## 13. Key Technical Lessons Extracted from 26 Submissions
+## 13. Key Technical Lessons Extracted from 27 Submissions
 
 1. **One change per submission is non-negotiable.** Subs 2 and 5–6 were undiagnosable because
    multiple things changed. Every regression that took more than one submission to diagnose
    violated this rule.
 
-2. **OOF consistently overestimates leaderboard by 0.03–0.05 points** due to temporal
+2. **OOF consistently overestimates leaderboard by 0.011–0.031 points** due to temporal
    distribution shift. Higher OOF does not guarantee higher leaderboard. Optuna rounds 2 and 3
-   and narrow r3 all found higher OOF but lower leaderboard scores.
+   and narrow r3 all found higher OOF but lower leaderboard scores. Sub 27 produced the worst
+   gap seen (0.031) — quarterly features amplified temporal overfitting.
 
 3. **SHAP filter from model A cannot be applied to model B.** Happened twice (Subs 2 and 20).
    Both caused regression. The filter must always be recomputed on the model it will be applied to.
@@ -605,13 +608,14 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 9. **colsample_bytree is the most important hyperparameter.** Reducing from ~1.0 to 0.373 forces
    feature diversity per tree. With 203 features, high colsample makes all trees converge to
-   NDWI-heavy splits. When the feature count grows (e.g., 247 in v6.1), colsample needs re-tuning:
-   0.373 × 247 ≈ 92 features/tree, which is too many and defeats the diversity objective.
+   NDWI-heavy splits. When the feature count grows (e.g., 247 in v6.1 or 295 in v7), colsample
+   needs re-tuning: 0.373 × 247 ≈ 92 features/tree, 0.339 × 295 ≈ 100 features/tree — both
+   too many and defeat the diversity objective.
 
 10. **The n_estimators bug in train.py.** Final fit used the early-stopping mean iteration count
     × 1.05 instead of the Optuna n_estimators. This was fixed between Sub 16 and Sub 18.
     Sub 16 score (broken): 0.9658. Sub 18 score (fixed): 0.9701. The final model MUST use the
-    Optuna n_estimators (870) for the final fit on full data.
+    Optuna n_estimators (870 in Sub 22, 893 in Sub 27) for the final fit on full data.
 
 11. **Stacking fails at 963 samples.** Meta-learner overfit. Trust LightGBM alone.
 
@@ -634,6 +638,15 @@ confirmed this — score dropped from 0.9720 to 0.9660.
     trials on contaminated DB) both converged on the same best trial #106: n_est=944, lr=0.1206,
     leaves=91, depth=6, colsample=0.275. Two independent runs finding the same params suggests a
     genuine local minimum for this feature space, but it is NOT better than Sub 22 on the leaderboard.
+
+16. **Quarterly aggregations cause temporal overfitting. Do not use.** Sub 27 added Q1–Q4 mean and
+    max for 6 indices (48 features, v7 = 295 total). OOF was 0.9908 (best ever), but leaderboard
+    dropped to 0.9599 — a 0.031 OOF-to-LB gap (3× the typical 0.011). Physical explanation:
+    quarterly statistics encode the absolute seasonal calendar of the training time period. The test
+    period is a different time window, so Q1 Jan–Mar in train ≠ Q1 Jan–Mar in test in terms of
+    agricultural state. Annual aggregations (mean, std, etc.) are time-period invariant; quarterly
+    splits are not. The correct way to capture seasonal transitions is through consecutive-change
+    stability features (already in the pipeline), not fixed quarterly bins.
 
 ---
 
@@ -693,7 +706,7 @@ Quarter-level aggregations are the motivated fix: they would capture within-year
 - `pipelines/training/tune.py` — updated to narrow ±20% Optuna search (not committed)
 
 **Untracked files (not yet staged):**
-- `docs/EXPERIMENT_LOG.md` — full experiment log (all 26 submissions, key learnings, feature timeline, final config)
+- `docs/EXPERIMENT_LOG.md` — full experiment log (all 27 submissions, key learnings, feature timeline, final config)
 - `docs/MODEL_SCORECARD.md` — single-page model identity, performance, feature summary, training procedure
 - `pipelines/training/sequence_model.py` — GRU model (experimental, Sub 21 artifact)
 - `pipelines/training/tests/test_sequence_model.py` — GRU unit tests
@@ -726,11 +739,11 @@ aquaculture-pond-detection/
 │   │   ├── Train.csv          # 963 rows × 147 cols (not committed)
 │   │   └── Test.csv           # 858 rows × 146 cols (not committed)
 │   └── processed/
-│       ├── train_features.parquet   # 963 × 205 (203 features + ID + label)
-│       └── test_features.parquet    # 858 × 204 (203 features + ID)
+│       ├── train_features.parquet   # 963 × 296 (295 features + ID + label)
+│       └── test_features.parquet    # 858 × 296 (295 features + ID)
 │
 ├── docs/
-│   ├── EXPERIMENT_LOG.md      # All 25 submissions, key learnings, feature timeline
+│   ├── EXPERIMENT_LOG.md      # All 27 submissions, key learnings, feature timeline
 │   └── MODEL_SCORECARD.md     # Final model identity and performance card
 │
 ├── experiments/
@@ -834,38 +847,46 @@ python -m pipelines.training.train
 
 ## 18. Known Open Problems
 
-1. **The same ~59 test samples are consistently misclassified** across all model variants.
-   No attempted intervention (pseudo-labeling, stacking, GRU, averaging) has resolved them.
-   These are genuinely hard cases — either edge cases in the feature space or samples with
-   ambiguous spectral signature due to seasonal effects in the test period.
+ 1. **The same ~59 test samples are consistently misclassified** across all model variants.
+    No attempted intervention (pseudo-labeling, stacking, GRU, averaging, quarterly features) has
+    resolved them. These are genuinely hard cases — seasonal wetlands (FPs) and ponds with
+    unusual draining-cycle temporal patterns (FNs).
 
-2. **OOF vs leaderboard gap is ~0.011.** The temporal distribution shift is real and
-   structural — train and test cover different time periods. No within-project intervention
-   has reduced this gap. Features that are temporally invariant (aggregations, stability stats,
-   turbidity) should be less affected than features dominated by absolute seasonal values.
+ 2. **OOF vs leaderboard gap is ~0.011 under normal conditions; pathological features can widen it
+    to 0.031.** The temporal distribution shift is real and structural. Quarterly aggregations
+    (Sub 27) proved this gap can be catastrophically widened by features that encode the absolute
+    seasonal calendar of the training period. Stick to temporally invariant aggregations.
 
-3. **The tune.py class_weight inconsistency.** Tuning uses `class_weight="balanced"` but
-   train.py overrides it to `None`. Sub 22 was produced under this configuration so the
-   best_params.json was tuned with a slightly different objective than the final model.
-   Whether fixing this would improve or harm results is unknown.
+ 3. **The tune.py class_weight inconsistency.** Tuning uses `class_weight="balanced"` but
+    train.py overrides it to `None`. Sub 22 was produced under this configuration so the
+    best_params.json was tuned with a slightly different objective than the final model.
+    Whether fixing this would improve or harm results is unknown.
 
-4. **The same ~59 test samples remain consistently misclassified.** OOF analysis on the training
-   set (Section 14) reveals 13 wrong predictions with clear temporal pattern signatures: FPs are
-   seasonal water bodies with high monthly variability, FNs are ponds with unusual management-driven
-   temporal patterns (draining cycles). Quarter-level aggregations are the next planned intervention.
+ 4. **Quarter-level aggregations are ruled out** (Sub 27 confirmed). OOF analysis (Section 14)
+    correctly identified that hard cases have temporal structure not captured by current
+    aggregations. However, the fix is NOT fixed quarterly bins — it must be time-period invariant.
+    Motivated alternatives: (a) consecutive-change features on more indices, (b) within-year
+    peak/trough timing features expressed as relative offsets rather than fixed calendar quarters,
+    (c) seasonal amplitude features (summer max minus winter min).
 
-5. **GRU adds no value at current OOF level.** The GRU needs to outperform LightGBM on the
-   OOF to add orthogonal signal. At F1=0.9744 vs 0.9821, it is worse. Possible future
-   directions: larger hidden_size, more channels, attention mechanism — but data size limits
-   what is feasible.
+ 5. **GRU adds no value at current OOF level.** The GRU needs to outperform LightGBM on the
+    OOF to add orthogonal signal. At F1=0.9744 vs 0.9821, it is worse. Possible future
+    directions: larger hidden_size, more channels, attention mechanism — but data size limits
+    what is feasible.
 
-6. **No spatial generalization test.** The project only measures temporal generalization
-   (train period A → test period B). The two regions are both in the training set. A true
-   geographic generalization test (train on region 1, test on region 0) has not been done.
+ 6. **No spatial generalization test.** The project only measures temporal generalization
+    (train period A → test period B). The two regions are both in the training set. A true
+    geographic generalization test (train on region 1, test on region 0) has not been done.
 
-7. **Optuna study contamination risk.** The `optuna_study_v6.db` contains mixed trials from
-   256-feature (v6) and 247-feature (v6.1) runs. For the next tune run, use study name
-   `lgbm_aquaculture_v6_1` and a fresh DB `optuna_study_v6_1.db`.
+ 7. **Optuna study contamination risk.** The `optuna_study_v6.db` contains mixed trials from
+    256-feature (v6) and 247-feature (v6.1) runs. For the next tune run, use study name
+    `lgbm_aquaculture_v6_1` and a fresh DB `optuna_study_v6_1.db`. Any v7 tune run must use
+    `lgbm_aquaculture_v7` and `optuna_study_v7.db` — but v7 is now a dead end (see Lesson 16).
+
+ 8. **Next feature engineering direction.** Temporally invariant seasonal features: peak-month
+    index (argmax of NDWI over 12 months), amplitude (max-min for key indices), and consecutive
+    stability features on additional indices. These capture seasonal timing without encoding
+    absolute calendar position.
 
 ---
 
