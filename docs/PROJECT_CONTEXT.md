@@ -433,6 +433,8 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 27 | v7, 295 feat, Optuna re-tuned (n_est=893, colsample=0.339) | 0.9599 | 0.9923 | 0.9700 | 356 | +48 quarterly agg features (Q1–Q4 mean+max for NDWI, MNDWI, NDTI, re1_nir, SAR_RVI, SABI) | OOF=0.9908 but LB=0.9599 — OOF-to-LB gap of 0.031 (3× the typical 0.011). Quarterly features overfit to the training time period; they do not transfer to the test period. DO NOT use quarterly aggregations. |
 | 28 | v6.1, 247 feat, Optuna v6.1 (n_est=900, colsample=0.264) | 0.9702 | 0.9946 | 0.9540 | 363 | Fresh Optuna sweep on 247 features, colsample settled at 0.264 (65/tree) | OOF-to-LB gap 0.020 (2× normal). 363 ponds = highest ever, worst F1 since Sub 18. colsample=0.264 is below the optimal floor of ~76/tree. Tuner minimises OOF variance by restricting features, but this causes over-prediction on the unseen test period. |
 | 29 | v6.1, 247 feat, Optuna v6.1b (n_est=756, colsample=0.329) | 0.9716 | 0.9921 | 0.9580 | 360 | Second Optuna sweep with colsample floor 0.295 enforced (73–91/tree range) | 360 ponds, LB=0.9716. Floor enforcement reduced pond count 363→360 but still above 355 danger zone. Two Optuna rounds on v6.1 both over-predict. Sub 26 (Sub22 params directly) at 352 ponds/0.9789 is the v6.1 ceiling. Optuna tuning of v6.1 is CLOSED. |
+| 30 | v6.2, 274 feat, Sub22 params (colsample=0.373→102/tree) | 0.9739 | 0.9922 | 0.9617 | 358 | +27 features: seasonal shape (peak_month, trough_month, amplitude) ×7 indices + consec_change for NDWI2/SAR_RVI | 358 ponds despite Sub22 params. Fixed colsample (0.373) gives 102/tree at 274 feat vs 76/tree at 203 feat. Colsample drift confirmed: each +44 feat with fixed colsample adds ~6 pond predictions. Fold 2 F1 dropped 0.993→0.975. OOF 0.9879. |
+| 31 | v6.2, 274 feat, Sub22 params + proportional colsample (0.278→76/tree) | 0.9790 | 0.9925 | 0.9700 | 353 | Same as Sub30 but colsample=76/274=0.278 (proportional rescale) | 353 ponds (safe zone). Fold 2 recovered 0.9747→0.9811. OOF 0.9882 pre-cal. LB=0.9790 — new best on 274 features. Seasonal shape features marginally help vs Sub26 (0.9789→0.9790). Sub22 still best at 0.9798 by 0.0008. |
 
 **Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
@@ -576,7 +578,7 @@ confirmed this — score dropped from 0.9720 to 0.9660.
 
 ---
 
-## 13. Key Technical Lessons Extracted from 28 Submissions
+## 13. Key Technical Lessons Extracted from 31 Submissions
 
 1. **One change per submission is non-negotiable.** Subs 2 and 5–6 were undiagnosable because
    multiple things changed. Every regression that took more than one submission to diagnose
@@ -660,6 +662,15 @@ confirmed this — score dropped from 0.9720 to 0.9660.
     **Rule:** The colsample floor is 76/n_features. The v6.1 Optuna ceiling is 0.9716.
     The v6.1 ceiling applying Sub22 params directly is 0.9789. Sub22 (v5, 203 feat) at 0.9798
     remains the best overall. Do not run further Optuna sweeps on 247 features.
+
+18. **Colsample must be proportionally rescaled when adding features (76/tree is the target density).**
+    Sub 30 used Sub22 params (colsample=0.373) on 274 features → 102/tree → 358 ponds, LB=0.9739.
+    Sub 31 used colsample=76/274=0.278 on the same 274 features → 76/tree → 353 ponds, LB=0.9790.
+    Rescaling colsample recovered the pond count (358→353) and boosted LB by +0.0051.
+    **Rule for any new feature set of size N:** set colsample = 76/N before the first training run.
+    Do not carry over a colsample value tuned for a different feature count.
+    Sub 31 (274 feat, 0.9790) is just 0.0008 behind Sub22 (203 feat, 0.9798). Seasonal shape
+    features marginally helped vs v6.1 (0.9789→0.9790). The 76/tree density rule is validated.
 
 ---
 
