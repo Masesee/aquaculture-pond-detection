@@ -80,7 +80,50 @@ def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
 # Bands/indices to compute consecutive change features for
 # v5 originals: NDWI, MNDWI, VV, NDTI, re1_nir
 # v6 additions: SABI (algal bloom temporal stability), CI (chlorophyll-a cycles)
-CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir", "SABI", "CI"]
+# v6.2 additions: NDWI2, SAR_RVI (top-SHAP v6.1 indices, temporally stable diffs)
+CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir", "SABI", "CI",
+                         "NDWI2", "SAR_RVI"]
+
+
+# ── Seasonal shape features ──────────────────────────────────────────────────
+
+def _seasonal_shape(monthly_values: np.ndarray) -> dict[str, float]:
+    """
+    Temporally invariant seasonal shape features.
+
+    Captures WHEN and HOW MUCH an index varies over the year without
+    encoding absolute reflectance or calendar-specific states. Safe
+    to use across training and test periods that cover different years.
+
+    Returns
+    -------
+    peak_month        : argmax index (0–11) — which month has the highest value.
+                        Physical meaning: timing of peak water / productivity.
+                        Transfers across years: a pond peaks randomly (always wet),
+                        a seasonal wetland peaks consistently in summer.
+    trough_month      : argmin index (0–11) — month with the lowest value.
+    seasonal_amplitude: mean(top-3 months) − mean(bottom-3 months).
+                        More robust than range (max−min) — ignores single-month
+                        cloud artefacts. Large = highly seasonal, small = stable.
+    """
+    sorted_vals  = np.sort(monthly_values)
+    top3_mean    = float(np.mean(sorted_vals[-3:]))
+    bottom3_mean = float(np.mean(sorted_vals[:3]))
+    return {
+        "peak_month":         float(np.argmax(monthly_values)),
+        "trough_month":       float(np.argmin(monthly_values)),
+        "seasonal_amplitude": top3_mean - bottom3_mean,
+    }
+
+
+# Indices to compute seasonal shape features for.
+# Selected: highest SHAP contributors from v6.1 that are most affected by
+# seasonal variability confounding pond vs wetland discrimination.
+# Quarterly bins (Sub 27) on these same indices caused temporal overfitting;
+# seasonal_amplitude and peak_month are invariant because they measure SHAPE
+# not absolute value in a fixed calendar window.
+SEASONAL_SHAPE_TARGETS = ["NDWI", "MNDWI", "NDTI", "NDWI2", "SAR_RVI", "re1_nir", "SABI"]
+
 
 
 # ── Spatial features ───────────────────────────────────────────────────────────
@@ -173,6 +216,13 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
             for change_name, change_val in changes.items():
                 row[f"{target}__{change_name}"] = change_val
 
+        # ── Seasonal shape features (v6.2) ──
+        for target in SEASONAL_SHAPE_TARGETS:
+            vals = monthly_index_values[target][i]
+            shape = _seasonal_shape(vals)
+            for shape_name, shape_val in shape.items():
+                row[f"{target}__{shape_name}"] = shape_val
+
         # ── Cross-index water agreement ──
         ndwi_monthly  = monthly_index_values["NDWI"][i]
         mndwi_monthly = monthly_index_values["MNDWI"][i]
@@ -221,6 +271,10 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     for target in CONSEC_CHANGE_TARGETS:
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
+            cols.append(f"{target}__{suffix}")
+
+    for target in SEASONAL_SHAPE_TARGETS:
+        for suffix in ["peak_month", "trough_month", "seasonal_amplitude"]:
             cols.append(f"{target}__{suffix}")
 
     cols.append("water_index_agreement")

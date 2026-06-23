@@ -191,4 +191,64 @@ def test_consec_change_features_in_matrix(minimal_raw_df, minimal_regions):
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
             col = f"{target}__{suffix}"
             assert col in result.columns, f"Missing: {col}"
-            assert not result[col].isna().any()
+            assert not result[col].isna().any()
+
+# -- Seasonal shape tests (v6.2) -----------------------------------------------
+
+from pipelines.features.aggregations import _seasonal_shape, SEASONAL_SHAPE_TARGETS
+
+
+def test_seasonal_shape_output_keys():
+    vals = np.arange(12, dtype=float)
+    result = _seasonal_shape(vals)
+    assert set(result.keys()) == {'peak_month', 'trough_month', 'seasonal_amplitude'}
+
+
+def test_seasonal_shape_peak_trough():
+    vals = np.zeros(12)
+    vals[5] = 1.0
+    vals[11] = -1.0
+    result = _seasonal_shape(vals)
+    assert result['peak_month']   == pytest.approx(5.0)
+    assert result['trough_month'] == pytest.approx(11.0)
+
+
+def test_seasonal_shape_amplitude():
+    vals = np.arange(12, dtype=float)
+    result = _seasonal_shape(vals)
+    assert result['seasonal_amplitude'] == pytest.approx(9.0)
+
+
+def test_seasonal_shape_stable_near_zero():
+    result = _seasonal_shape(np.full(12, 0.5))
+    assert abs(result['seasonal_amplitude']) < 1e-9
+
+
+def test_seasonal_shape_discriminates_wetland_vs_pond():
+    wetland = np.array([-0.3,-0.2,-0.1,0.0,0.1,0.5,0.6,0.5,0.2,-0.1,-0.2,-0.3])
+    pond    = np.full(12, 0.4)
+    assert _seasonal_shape(wetland)['seasonal_amplitude'] > _seasonal_shape(pond)['seasonal_amplitude']
+    assert _seasonal_shape(wetland)['seasonal_amplitude'] > 0.5
+
+
+def test_seasonal_shape_in_feature_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in SEASONAL_SHAPE_TARGETS:
+        for suffix in ['peak_month', 'trough_month', 'seasonal_amplitude']:
+            col = f'{target}__{suffix}'
+            assert col in result.columns, f'Missing: {col}'
+            assert not result[col].isna().any(), f'NaN in: {col}'
+
+
+def test_seasonal_shape_in_feature_names():
+    names = feature_names()
+    for target in SEASONAL_SHAPE_TARGETS:
+        for suffix in ['peak_month', 'trough_month', 'seasonal_amplitude']:
+            assert f'{target}__{suffix}' in names
+
+
+def test_seasonal_shape_month_indices_in_range(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in SEASONAL_SHAPE_TARGETS:
+        assert result[f'{target}__peak_month'].between(0, 11).all()
+        assert result[f'{target}__trough_month'].between(0, 11).all()
