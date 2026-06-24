@@ -1,7 +1,41 @@
-# GeoAI Aquaculture Pond Identification — Full Project Context
+﻿# GeoAI Aquaculture Pond Identification — Full Project Context
 
 This document is a complete, self-contained briefing of the aquaculture pond detection project.
 It is intended as starting context for any agent picking up this work. Nothing is assumed. Nothing is omitted.
+
+
+---
+
+## 0. Branch Map — What Lives Where
+
+This project spans multiple git branches. Each is a parallel experiment — do not merge without
+explicit instruction. All submission results are recorded in this document regardless of active branch.
+
+| Branch | Feature set | Best LB | Status |
+|---|---|---|---|
+| `main` | v5 (203 feat) | **0.9798** Sub 22 | Frozen — gold standard. Do not modify. |
+| `explore/new-ideas` | v6.1 to v6.2 (247 to 274 feat) | 0.9790 Sub 31 | Closed — ceiling reached. |
+| `feat/v6.3-fourier-harmonics` <- **YOU ARE HERE** | v6.3 (274 + Fourier harmonics) | pending | Active experiment. |
+
+### Why this branch exists
+
+The leaderboard gap is structural: Sub22=0.9798, 2nd place=0.9973, gap=0.0175.
+No colsample or num_leaves tuning closes 0.017. The 13 hard-case errors need richer
+temporal pattern recognition. Fourier decomposition of the 12-month time series gives:
+- **A1, phi1** — dominant annual cycle amplitude + phase (invariant across years)
+- **A2, phi2** — semi-annual component (fires for aquaculture harvest/drain cycles)
+
+This is a step-change over seasonal_amplitude (top-3 minus bottom-3 average).
+
+### Colsample scaling rule (Lesson 18 — validated Subs 26-31)
+
+For any feature set of size N: set colsample = 76/N before any training run.
+
+| Feature count | colsample | feat/tree | Result |
+|---|---|---|---|
+| 203 (v5) | 0.373 | 76 | Sub22 LB=0.9798 |
+| 274 (v6.2) | 0.278 | 76 | Sub31 LB=0.9790 |
+| ~294 (v6.3 expected) | ~0.259 | 76 | pending |
 
 ---
 
