@@ -92,3 +92,40 @@ across trees, preventing all trees from converging to NDWI-heavy splits.
 7. Refit final model on full training data using n_estimators=870
 8. Apply calibrator to test probabilities
 9. Threshold at 0.5 for binary predictions
+
+---
+
+## Known Limitations
+
+**Temporal shift:** OOF-to-leaderboard gap of ~0.011 confirms the model partially
+overfits to the training time period despite temporal invariant features.
+Features that remain time-sensitive: optical raw band aggregations (32.8% of importance).
+
+**Region 0 weakness:** Fold 0 (highest region-0 validation share) consistently scores
+F1=0.9677 vs F1=0.98+ for other folds. With only 13 pond training examples in region-0,
+the model has a weak prior for that region.
+
+**OOD test cluster:** ~30-40 test points at lon≈47.6 have no nearby training data.
+Predictions for these locations are spectral extrapolation only.
+
+**Spatial prior removed:** dist_to_pond_centroid was deliberately removed to prevent
+geographic memorization. The model relies entirely on spectral and temporal features.
+If applied to a new geographic region, performance is expected to be lower than the
+leaderboard score.
+
+---
+
+## Reproduction
+
+```bash
+pip install -r requirements.txt
+# Place Train.csv and Test.csv in data/raw/
+
+pytest pipelines/ -v                              # all gate tests must pass
+python -m pipelines.features.build_features       # builds 203-feature matrices
+python -m pipelines.training.train                # trains final model
+# Submission file: outputs/submissions/submission.csv
+```
+
+Ensure `outputs/models/best_params.json` contains the sub 22 params above before
+running `train.py`. The file is committed to the repository.
