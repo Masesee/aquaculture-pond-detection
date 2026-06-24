@@ -470,6 +470,7 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 30 | v6.2, 274 feat, Sub22 params (colsample=0.373→102/tree) | 0.9739 | 0.9922 | 0.9617 | 358 | +27 features: seasonal shape (peak_month, trough_month, amplitude) ×7 indices + consec_change for NDWI2/SAR_RVI | 358 ponds despite Sub22 params. Fixed colsample (0.373) gives 102/tree at 274 feat vs 76/tree at 203 feat. Colsample drift confirmed: each +44 feat with fixed colsample adds ~6 pond predictions. Fold 2 F1 dropped 0.993→0.975. OOF 0.9879. |
 | 31 | v6.2, 274 feat, Sub22 params + proportional colsample (0.278→76/tree) | 0.9790 | 0.9925 | 0.9700 | 353 | Same as Sub30 but colsample=76/274=0.278 (proportional rescale) | 353 ponds (safe zone). Fold 2 recovered 0.9747→0.9811. OOF 0.9882 pre-cal. LB=0.9790 — new best on 274 features. Seasonal shape features marginally help vs Sub26 (0.9789→0.9790). Sub22 still best at 0.9798 by 0.0008. |
 | 32 | v6.3, 294 feat, Fourier A1/phi1/A2/phi2 for 5 indices (colsample=0.259→76/tree) | 0.9651 | 0.9885 | 0.9496 | 364 | +20 features: 5 indices × {A1,phi1,A2,phi2}. OOF=0.9904 (best ever) | 364 ponds, LB=0.9651. OOF was great but phases (phi1/phi2) encode seasonal TIMING which shifts year-to-year due to interannual climate variability. Same failure as quarterly bins. LESSON 19: only use Fourier amplitudes (A1, A2), never phases. |
+| 33 | v6.3b, 284 feat, Fourier A1+A2 only for 5 indices (colsample=0.268→76/tree) | 0.9735 | 0.9917 | 0.9614 | 350 | Same as Sub32 but phases dropped — amplitudes only | 350 ponds (lowest ever) but LB=0.9735 — worse than Sub31. Fewer ponds ≠ better. A1 correlates with seasonal_amplitude (already in v6.2). Adding correlated features destabilises importance without new signal. LESSON 20: v6.3 direction CLOSED. |
 
 **Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
@@ -723,6 +724,21 @@ confirmed this — score dropped from 0.9720 to 0.9660.
               Only use Fourier AMPLITUDE features (A1, A2). The same applies to any
               timing-based feature derived from a single year of observations.
     Next experiment: drop phi1/phi2 -- keep only A1/A2. 284 features, colsample=76/284=0.268.
+
+
+20. **Fourier amplitudes (A1, A2) are correlated with seasonal_amplitude — adding them is noise, not signal.**
+    Sub 33: v6.3b with A1/A2 only for 5 indices (284 feat, colsample=0.268) -> 350 ponds, LB=0.9735.
+    Despite 350 ponds (lowest ever, even below Sub22's 351), LB was 0.9735 — worse than Sub31 (0.9790).
+    Fewer pond predictions does NOT mean better predictions. The model became more conservative
+    in the wrong direction: removing true positives (missed ponds), not just false positives.
+    Root cause: harmonic_A1 (FFT amplitude of annual cycle) is mathematically near-identical to
+    seasonal_amplitude (mean of top-3 minus mean of bottom-3 months). Both capture 'how much
+    does the signal vary seasonally.' Adding a correlated feature destabilizes the model's
+    feature importance balance without providing new discriminative information.
+    **Rule:** Before adding a new feature type, verify it is NOT correlated with an existing
+    feature (correlation > 0.85 signals redundancy). seasonal_amplitude already captures what
+    A1 captures. The v6.3 direction is CLOSED entirely. Revert to v6.2 (274 feat) as baseline.
+    The feature engineering ceiling from 12-month monthly composites is approximately 0.9798 (Sub22).
 
 ---
 
