@@ -125,8 +125,55 @@ def _seasonal_shape(monthly_values: np.ndarray) -> dict[str, float]:
 SEASONAL_SHAPE_TARGETS = ["NDWI", "MNDWI", "NDTI", "NDWI2", "SAR_RVI", "re1_nir", "SABI"]
 
 
+# ── Fourier harmonic features (v6.3) ──────────────────────────────────────
 
-# ── Spatial features ───────────────────────────────────────────────────────────
+def _fourier_harmonics(monthly_values: np.ndarray) -> dict[str, float]:
+    """
+    Extract Fourier harmonic features from 12 monthly observations.
+
+    Uses numpy real FFT on N=12 evenly-spaced monthly samples.
+    Returns amplitude and phase for the first two harmonics:
+
+    A1 / phi1 : annual cycle (period = 12 months)
+        A1  = strength of the dominant yearly seasonal swing.
+              Near zero for permanent ponds (flat signal).
+              Large for seasonal wetlands (wet/dry cycle).
+        phi1 = phase in radians [-pi, pi] — when the annual peak occurs.
+              Invariant across years: a summer-wet wetland always has phi1 ~ pi/2.
+
+    A2 / phi2 : semi-annual cycle (period = 6 months)
+        A2  = strength of sub-annual periodicity.
+              Fires for aquaculture ponds with two harvest/drain cycles per year.
+        phi2 = phase of the semi-annual cycle.
+
+    Temporal invariance: A1, A2 measure cycle STRENGTH (not absolute value).
+    phi1, phi2 measure cycle TIMING within the year (same location = same
+    timing every year). Both transfer across training and test time periods.
+
+    Normalization: amplitudes are scaled by 2/N so they are in the same
+    unit as the original signal (e.g. reflectance, NDWI range [-1, 1]).
+    """
+    fft = np.fft.rfft(monthly_values)  # length 7 for N=12 (0..6)
+    scale = 2.0 / len(monthly_values)  # = 2/12
+    return {
+        "harmonic_A1":   float(np.abs(fft[1]) * scale),
+        "harmonic_phi1": float(np.angle(fft[1])),
+        "harmonic_A2":   float(np.abs(fft[2]) * scale),
+        "harmonic_phi2": float(np.angle(fft[2])),
+    }
+
+
+# Indices to compute Fourier harmonic features for.
+# Selected: the 5 highest SHAP contributors in v6.1 that carry seasonal signal.
+# NDWI/MNDWI: primary water detection. NDTI: turbidity seasonality.
+# SAR_RVI: radar vegetation cycle. re1_nir: canopy phenology.
+# Applying to SABI/NDWI2 would add partial redundancy without new physics.
+FOURIER_TARGETS = ["NDWI", "MNDWI", "NDTI", "SAR_RVI", "re1_nir"]
+
+
+
+# -- Spatial features ----------------------------------------------------------
+
 
 # Pond cluster centroid — derived from region_map visual inspection.
 # The dense orange cluster sits around lon=48.85, lat=39.48.
@@ -223,6 +270,13 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
             for shape_name, shape_val in shape.items():
                 row[f"{target}__{shape_name}"] = shape_val
 
+        # ── Fourier harmonic features (v6.3) ──
+        for target in FOURIER_TARGETS:
+            vals = monthly_index_values[target][i]
+            harmonics = _fourier_harmonics(vals)
+            for h_name, h_val in harmonics.items():
+                row[f"{target}__{h_name}"] = h_val
+
         # ── Cross-index water agreement ──
         ndwi_monthly  = monthly_index_values["NDWI"][i]
         mndwi_monthly = monthly_index_values["MNDWI"][i]
@@ -275,6 +329,10 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     for target in SEASONAL_SHAPE_TARGETS:
         for suffix in ["peak_month", "trough_month", "seasonal_amplitude"]:
+            cols.append(f"{target}__{suffix}")
+
+    for target in FOURIER_TARGETS:
+        for suffix in ["harmonic_A1", "harmonic_phi1", "harmonic_A2", "harmonic_phi2"]:
             cols.append(f"{target}__{suffix}")
 
     cols.append("water_index_agreement")

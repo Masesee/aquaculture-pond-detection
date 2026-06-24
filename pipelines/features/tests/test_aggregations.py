@@ -252,3 +252,77 @@ def test_seasonal_shape_month_indices_in_range(minimal_raw_df, minimal_regions):
     for target in SEASONAL_SHAPE_TARGETS:
         assert result[f'{target}__peak_month'].between(0, 11).all()
         assert result[f'{target}__trough_month'].between(0, 11).all()
+
+
+# -- Fourier harmonic tests (v6.3) ---------------------------------------------
+
+from pipelines.features.aggregations import _fourier_harmonics, FOURIER_TARGETS
+
+
+def test_fourier_harmonics_output_keys():
+    vals = np.arange(12, dtype=float)
+    result = _fourier_harmonics(vals)
+    assert set(result.keys()) == {'harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2'}
+
+
+def test_fourier_harmonics_flat_signal_near_zero():
+    '''Flat signal -> no annual or semi-annual cycle -> both amplitudes near 0.'''
+    result = _fourier_harmonics(np.full(12, 0.5))
+    assert abs(result['harmonic_A1']) < 1e-9
+    assert abs(result['harmonic_A2']) < 1e-9
+
+
+def test_fourier_harmonics_pure_annual_sine():
+    '''Pure annual sine -> A1 > 0, A2 near 0.'''
+    t = np.arange(12)
+    vals = np.sin(2 * np.pi * t / 12)  # one full cycle
+    result = _fourier_harmonics(vals)
+    assert result['harmonic_A1'] == pytest.approx(1.0, abs=1e-6)
+    assert abs(result['harmonic_A2']) < 1e-6
+
+
+def test_fourier_harmonics_pure_semi_annual_sine():
+    '''Pure semi-annual sine -> A2 > 0, A1 near 0.'''
+    t = np.arange(12)
+    vals = np.sin(2 * np.pi * 2 * t / 12)  # two full cycles
+    result = _fourier_harmonics(vals)
+    assert abs(result['harmonic_A1']) < 1e-6
+    assert result['harmonic_A2'] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_fourier_harmonics_pond_vs_wetland():
+    '''Permanent pond (flat) has lower A1 than seasonal wetland.'''
+    wetland = np.array([-0.3,-0.2,-0.1,0.0,0.1,0.5,0.6,0.5,0.2,-0.1,-0.2,-0.3])
+    pond    = np.full(12, 0.4)
+    assert _fourier_harmonics(wetland)['harmonic_A1'] > _fourier_harmonics(pond)['harmonic_A1']
+
+
+def test_fourier_harmonics_phi_range():
+    '''Phase values must be in [-pi, pi].'''
+    vals = np.random.default_rng(42).uniform(-1, 1, 12)
+    result = _fourier_harmonics(vals)
+    assert -np.pi <= result['harmonic_phi1'] <= np.pi
+    assert -np.pi <= result['harmonic_phi2'] <= np.pi
+
+
+def test_fourier_harmonics_in_feature_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in FOURIER_TARGETS:
+        for suffix in ['harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2']:
+            col = f'{target}__{suffix}'
+            assert col in result.columns, f'Missing: {col}'
+            assert not result[col].isna().any(), f'NaN in: {col}'
+
+
+def test_fourier_harmonics_in_feature_names():
+    names = feature_names()
+    for target in FOURIER_TARGETS:
+        for suffix in ['harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2']:
+            assert f'{target}__{suffix}' in names
+
+
+def test_fourier_harmonics_amplitude_nonnegative(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in FOURIER_TARGETS:
+        assert (result[f'{target}__harmonic_A1'] >= 0).all()
+        assert (result[f'{target}__harmonic_A2'] >= 0).all()
