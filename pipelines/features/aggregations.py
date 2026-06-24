@@ -144,22 +144,23 @@ def _fourier_harmonics(monthly_values: np.ndarray) -> dict[str, float]:
     A2 / phi2 : semi-annual cycle (period = 6 months)
         A2  = strength of sub-annual periodicity.
               Fires for aquaculture ponds with two harvest/drain cycles per year.
-        phi2 = phase of the semi-annual cycle.
 
-    Temporal invariance: A1, A2 measure cycle STRENGTH (not absolute value).
-    phi1, phi2 measure cycle TIMING within the year (same location = same
-    timing every year). Both transfer across training and test time periods.
+    Temporal invariance: A1 and A2 measure cycle STRENGTH (not timing).
+    They are safe across training/test periods from different years.
 
-    Normalization: amplitudes are scaled by 2/N so they are in the same
-    unit as the original signal (e.g. reflectance, NDWI range [-1, 1]).
+    IMPORTANT — phases (phi1, phi2) are NOT included.
+    Lesson 19: phase encodes WHEN the annual/semi-annual peak occurs within
+    the calendar year. Interannual variability in monsoon onset, drought
+    timing etc. shifts phi by weeks year-to-year, causing the same
+    failure as quarterly bins (Sub 27, Sub 32). Amplitudes only.
+
+    Normalization: amplitudes scaled by 2/N to match original signal units.
     """
-    fft = np.fft.rfft(monthly_values)  # length 7 for N=12 (0..6)
+    fft = np.fft.rfft(monthly_values)  # length 7 for N=12 (indices 0..6)
     scale = 2.0 / len(monthly_values)  # = 2/12
     return {
-        "harmonic_A1":   float(np.abs(fft[1]) * scale),
-        "harmonic_phi1": float(np.angle(fft[1])),
-        "harmonic_A2":   float(np.abs(fft[2]) * scale),
-        "harmonic_phi2": float(np.angle(fft[2])),
+        "harmonic_A1": float(np.abs(fft[1]) * scale),
+        "harmonic_A2": float(np.abs(fft[2]) * scale),
     }
 
 
@@ -332,7 +333,7 @@ def feature_names(exclude_id: bool = True) -> list[str]:
             cols.append(f"{target}__{suffix}")
 
     for target in FOURIER_TARGETS:
-        for suffix in ["harmonic_A1", "harmonic_phi1", "harmonic_A2", "harmonic_phi2"]:
+        for suffix in ["harmonic_A1", "harmonic_A2"]:
             cols.append(f"{target}__{suffix}")
 
     cols.append("water_index_agreement")

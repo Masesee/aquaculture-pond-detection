@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gate tests for temporal aggregation pipeline.
 Deterministic. No real data. Must pass in < 2s.
 """
@@ -262,7 +262,7 @@ from pipelines.features.aggregations import _fourier_harmonics, FOURIER_TARGETS
 def test_fourier_harmonics_output_keys():
     vals = np.arange(12, dtype=float)
     result = _fourier_harmonics(vals)
-    assert set(result.keys()) == {'harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2'}
+    assert set(result.keys()) == {'harmonic_A1', 'harmonic_A2'}
 
 
 def test_fourier_harmonics_flat_signal_near_zero():
@@ -297,18 +297,10 @@ def test_fourier_harmonics_pond_vs_wetland():
     assert _fourier_harmonics(wetland)['harmonic_A1'] > _fourier_harmonics(pond)['harmonic_A1']
 
 
-def test_fourier_harmonics_phi_range():
-    '''Phase values must be in [-pi, pi].'''
-    vals = np.random.default_rng(42).uniform(-1, 1, 12)
-    result = _fourier_harmonics(vals)
-    assert -np.pi <= result['harmonic_phi1'] <= np.pi
-    assert -np.pi <= result['harmonic_phi2'] <= np.pi
-
-
 def test_fourier_harmonics_in_feature_matrix(minimal_raw_df, minimal_regions):
     result = build_feature_matrix(minimal_raw_df, minimal_regions)
     for target in FOURIER_TARGETS:
-        for suffix in ['harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2']:
+        for suffix in ['harmonic_A1', 'harmonic_A2']:
             col = f'{target}__{suffix}'
             assert col in result.columns, f'Missing: {col}'
             assert not result[col].isna().any(), f'NaN in: {col}'
@@ -317,7 +309,7 @@ def test_fourier_harmonics_in_feature_matrix(minimal_raw_df, minimal_regions):
 def test_fourier_harmonics_in_feature_names():
     names = feature_names()
     for target in FOURIER_TARGETS:
-        for suffix in ['harmonic_A1', 'harmonic_phi1', 'harmonic_A2', 'harmonic_phi2']:
+        for suffix in ['harmonic_A1', 'harmonic_A2']:
             assert f'{target}__{suffix}' in names
 
 

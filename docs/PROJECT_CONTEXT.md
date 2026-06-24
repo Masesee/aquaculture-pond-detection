@@ -15,7 +15,7 @@ explicit instruction. All submission results are recorded in this document regar
 |---|---|---|---|
 | `main` | v5 (203 feat) | **0.9798** Sub 22 | Frozen — gold standard. Do not modify. |
 | `explore/new-ideas` | v6.1 to v6.2 (247 to 274 feat) | 0.9790 Sub 31 | Closed — ceiling reached. |
-| `feat/v6.3-fourier-harmonics` <- **YOU ARE HERE** | v6.3 (274 + Fourier harmonics) | pending | Active experiment. |
+| ``feat/v6.3-fourier-harmonics`` <- **YOU ARE HERE** | v6.3 (274 + Fourier harmonics) | 0.9651 Sub32 (full), pending (A1/A2 only) | Active: testing A1/A2 amplitudes only (phases confirmed bad). |
 
 ### Why this branch exists
 
@@ -469,6 +469,7 @@ All scores are on the Zindi leaderboard (test period generalization).
 | 29 | v6.1, 247 feat, Optuna v6.1b (n_est=756, colsample=0.329) | 0.9716 | 0.9921 | 0.9580 | 360 | Second Optuna sweep with colsample floor 0.295 enforced (73–91/tree range) | 360 ponds, LB=0.9716. Floor enforcement reduced pond count 363→360 but still above 355 danger zone. Two Optuna rounds on v6.1 both over-predict. Sub 26 (Sub22 params directly) at 352 ponds/0.9789 is the v6.1 ceiling. Optuna tuning of v6.1 is CLOSED. |
 | 30 | v6.2, 274 feat, Sub22 params (colsample=0.373→102/tree) | 0.9739 | 0.9922 | 0.9617 | 358 | +27 features: seasonal shape (peak_month, trough_month, amplitude) ×7 indices + consec_change for NDWI2/SAR_RVI | 358 ponds despite Sub22 params. Fixed colsample (0.373) gives 102/tree at 274 feat vs 76/tree at 203 feat. Colsample drift confirmed: each +44 feat with fixed colsample adds ~6 pond predictions. Fold 2 F1 dropped 0.993→0.975. OOF 0.9879. |
 | 31 | v6.2, 274 feat, Sub22 params + proportional colsample (0.278→76/tree) | 0.9790 | 0.9925 | 0.9700 | 353 | Same as Sub30 but colsample=76/274=0.278 (proportional rescale) | 353 ponds (safe zone). Fold 2 recovered 0.9747→0.9811. OOF 0.9882 pre-cal. LB=0.9790 — new best on 274 features. Seasonal shape features marginally help vs Sub26 (0.9789→0.9790). Sub22 still best at 0.9798 by 0.0008. |
+| 32 | v6.3, 294 feat, Fourier A1/phi1/A2/phi2 for 5 indices (colsample=0.259→76/tree) | 0.9651 | 0.9885 | 0.9496 | 364 | +20 features: 5 indices × {A1,phi1,A2,phi2}. OOF=0.9904 (best ever) | 364 ponds, LB=0.9651. OOF was great but phases (phi1/phi2) encode seasonal TIMING which shifts year-to-year due to interannual climate variability. Same failure as quarterly bins. LESSON 19: only use Fourier amplitudes (A1, A2), never phases. |
 
 **Failed run (not numbered — submitted by mistake):** v6 tuned (256 feat): LB=0.9765, ponds=356. Optuna found fold3 F1=1.0 (overfit on 256-feat contaminated study). Tuned params gave over-prediction. This is the run that introduced the contaminated `optuna_study_v6.db` (see Lesson 14).
 
@@ -705,6 +706,23 @@ confirmed this — score dropped from 0.9720 to 0.9660.
     Do not carry over a colsample value tuned for a different feature count.
     Sub 31 (274 feat, 0.9790) is just 0.0008 behind Sub22 (203 feat, 0.9798). Seasonal shape
     features marginally helped vs v6.1 (0.9789→0.9790). The 76/tree density rule is validated.
+
+
+19. **Fourier phases (phi1, phi2) are NOT temporally invariant. Only amplitudes (A1, A2) are.**
+    Sub 32: v6.3 with A1/phi1/A2/phi2 for 5 indices (294 feat, colsample=0.259) -> 364 ponds, LB=0.9651.
+    OOF was 0.9904 (best ever) but LB was the second-worst on this branch (-0.014 from Sub31).
+    Root cause: phi1/phi2 encode WHEN the annual/semi-annual peak occurs within the calendar year.
+    Interannual climate variability shifts seasonal timing (monsoon onset, drought timing) by weeks
+    year-to-year. The model learned phi1~pi/2 means 'summer-wet wetland' in the training year;
+    in the test year that same wetland has phi1~2pi/3 due to a delayed monsoon. Misclassification.
+    This is the same failure mode as quarterly bins (Sub 27) but at higher frequency resolution.
+    phi1/phi2 are essentially a high-precision version of peak_month -- MORE sensitive to
+    interannual variability, not less.
+    A1 and A2 (amplitudes) measure HOW MUCH the signal varies, not WHEN. They ARE invariant.
+    **Rule:** Never use Fourier PHASE features across training/test periods from different years.
+              Only use Fourier AMPLITUDE features (A1, A2). The same applies to any
+              timing-based feature derived from a single year of observations.
+    Next experiment: drop phi1/phi2 -- keep only A1/A2. 284 features, colsample=76/284=0.268.
 
 ---
 
