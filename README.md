@@ -8,6 +8,11 @@ using 12 months of Sentinel-1 SAR + Sentinel-2 optical data.
 > Full performance breakdown → [`docs/MODEL_SCORECARD.md`](docs/MODEL_SCORECARD.md)
 > Full experiment history (25 submissions, lessons learned) → [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
 
+> [!IMPORTANT]
+> **REVISED CHALLENGE PHASE (June 2026)**
+> The organizers updated the challenge data (removed coordinates, masked test samples to 4–6 months with -9999).
+> For the new pipeline structure, adversarial validation feature selection, and reproduction steps, see [`docs/REVISED_CHALLENGE_CONTEXT.md`](docs/REVISED_CHALLENGE_CONTEXT.md).
+
 ---
 
 ## What is this?

@@ -18,7 +18,6 @@ from contracts.schema import DataSchema
 from pipelines.eda.class_balance    import run_class_balance
 from pipelines.eda.missing_values   import run_missing_values
 from pipelines.eda.spectral_separation import run_spectral_separation
-from pipelines.eda.regional_analysis  import run_regional_analysis
 from pipelines.eda.temporal_profiles  import run_temporal_profiles
 
 OUTPUT_DIR = ROOT / "outputs" / "eda"
@@ -38,18 +37,23 @@ def main():
     DataSchema.validate_test(test)
     print(f"Train: {train.shape} | Test: {test.shape}")
 
+    # Convert unobserved -9999 values to NaN immediately
+    import numpy as np
+    train = train.replace(-9999, np.nan).replace(-9999.0, np.nan)
+    test  = test.replace(-9999, np.nan).replace(-9999.0, np.nan)
+
     print("\n=== Q1: Class balance ===")
     run_class_balance(train, OUTPUT_DIR)
 
     print("\n=== Q3: Missing values ===")
     run_missing_values(train, test, OUTPUT_DIR)
 
-    print("\n=== Q4: Regional analysis ===")
-    run_regional_analysis(train, test, OUTPUT_DIR)
+    print("\n=== Q4: Regional analysis (SKIPPED: coordinates removed) ===")
+    # run_regional_analysis(train, test, OUTPUT_DIR)
 
-    print("\n=== OOD check: isolated test cluster ===")
-    from pipelines.eda.regional_analysis import run_ood_check
-    run_ood_check(train, test, OUTPUT_DIR)
+    print("\n=== OOD check (SKIPPED: coordinates removed) ===")
+    # from pipelines.eda.regional_analysis import run_ood_check
+    # run_ood_check(train, test, OUTPUT_DIR)
 
     print("\n=== Q2/Q5: Spectral separation ===")
     run_spectral_separation(train, OUTPUT_DIR)

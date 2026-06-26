@@ -2,8 +2,7 @@
 Temporal aggregations over 12 monthly values.
 Takes a DataFrame of raw + index columns, returns a flat feature DataFrame.
 
-Every aggregation is deterministic: same input → same output, always.
-The feature names produced here are the contract downstream models consume.
+Vectorized and optimized for high-performance extraction over large datasets.
 """
 
 import numpy as np
@@ -16,27 +15,41 @@ from pipelines.features.indices import INDEX_FN_MAP
 
 def _agg_series(monthly_values: np.ndarray) -> dict[str, float]:
     """
-    Given a (12,) array of monthly values for one band/index,
-    return all scalar temporal aggregations.
+    Given an array of monthly values for one band/index (potentially containing NaNs),
+    return all scalar temporal aggregations over valid months.
     """
-    mean   = float(np.mean(monthly_values))
-    std    = float(np.std(monthly_values, ddof=1)) if len(monthly_values) > 1 else 0.0
-    cv     = std / (abs(mean) + 1e-9)  # coefficient of variation; abs(mean) handles dB negatives
+    valid_vals = monthly_values[~np.isnan(monthly_values)]
+    if len(valid_vals) == 0:
+        return {
+            "mean":   0.0,
+            "median": 0.0,
+            "std":    0.0,
+            "min":    0.0,
+            "max":    0.0,
+            "p10":    0.0,
+            "p90":    0.0,
+            "cv":     0.0,
+            "range":  0.0,
+        }
+
+    mean = float(np.mean(valid_vals))
+    std  = float(np.std(valid_vals, ddof=1)) if len(valid_vals) > 1 else 0.0
+    cv   = std / (abs(mean) + 1e-9)  # coefficient of variation; abs(mean) handles dB negatives
 
     return {
         "mean":   mean,
-        "median": float(np.median(monthly_values)),
+        "median": float(np.median(valid_vals)),
         "std":    std,
-        "min":    float(np.min(monthly_values)),
-        "max":    float(np.max(monthly_values)),
-        "p10":    float(np.percentile(monthly_values, 10)),
-        "p90":    float(np.percentile(monthly_values, 90)),
+        "min":    float(np.min(valid_vals)),
+        "max":    float(np.max(valid_vals)),
+        "p10":    float(np.percentile(valid_vals, 10)),
+        "p90":    float(np.percentile(valid_vals, 90)),
         "cv":     cv,
-        "range":  float(np.max(monthly_values) - np.min(monthly_values)),
+        "range":  float(np.max(valid_vals) - np.min(valid_vals)),
     }
 
 
-# ── Persistence counts ─────────────────────────────────────────────────────────
+# ── Persistence fractions (normalized counts) ──────────────────────────────────
 
 PERSISTENCE_RULES: dict[str, tuple[str, str, float]] = {
     # feature_name          : (index_name, operator, threshold)
@@ -48,15 +61,21 @@ PERSISTENCE_RULES: dict[str, tuple[str, str, float]] = {
 }
 
 
-def _persistence(monthly_values: np.ndarray, operator: str, threshold: float) -> int:
+def _persistence(monthly_values: np.ndarray, operator: str, threshold: float) -> float:
+    """
+    Computes the fraction of valid observed months that satisfy the threshold rule.
+    """
+    valid_vals = monthly_values[~np.isnan(monthly_values)]
+    if len(valid_vals) == 0:
+        return 0.0
     if operator == ">":
-        return int(np.sum(monthly_values > threshold))
+        return float(np.mean(valid_vals > threshold))
     elif operator == "<":
-        return int(np.sum(monthly_values < threshold))
+        return float(np.mean(valid_vals < threshold))
     elif operator == ">=":
-        return int(np.sum(monthly_values >= threshold))
+        return float(np.mean(valid_vals >= threshold))
     elif operator == "<=":
-        return int(np.sum(monthly_values <= threshold))
+        return float(np.mean(valid_vals <= threshold))
     raise ValueError(f"Unknown operator: {operator}")
 
 
@@ -64,10 +83,16 @@ def _persistence(monthly_values: np.ndarray, operator: str, threshold: float) ->
 
 def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
     """
-    Computes statistics over 11 consecutive-month absolute differences.
-    Measures temporal stability — invariant across time periods.
+    Computes statistics over consecutive-month absolute differences for valid months.
     """
-    diffs = np.abs(np.diff(monthly_values))   # shape (11,)
+    valid_vals = monthly_values[~np.isnan(monthly_values)]
+    if len(valid_vals) <= 1:
+        return {
+            "max_consec_change":  0.0,
+            "mean_consec_change": 0.0,
+            "monotone_fraction":  1.0,
+        }
+    diffs = np.abs(np.diff(valid_vals))   # consecutive changes
     return {
         "max_consec_change":  float(np.max(diffs)),
         "mean_consec_change": float(np.mean(diffs)),
@@ -79,120 +104,148 @@ def _consecutive_changes(monthly_values: np.ndarray) -> dict[str, float]:
 CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
 
 
-# ── Spatial features ───────────────────────────────────────────────────────────
-
-# Pond cluster centroid — derived from region_map visual inspection.
-# The dense orange cluster sits around lon=48.85, lat=39.48.
-# Used to compute a distance proxy that is time-invariant.
-# POND_CLUSTER_CENTROID = (48.85, 39.48)
-
-
-# def _distance_to_centroid(lon: pd.Series, lat: pd.Series) -> pd.Series:
-#     """
-#     Log-transformed distance to pond cluster centroid.
-#     log1p compresses large distances, reducing leverage of OOD points.
-#     """
-#     dlon = lon - POND_CLUSTER_CENTROID[0]
-#     dlat = lat - POND_CLUSTER_CENTROID[1]
-#     raw_dist = np.sqrt(dlon**2 + dlat**2)
-#     return np.log1p(raw_dist)
-
-
 # ── Main feature builder ───────────────────────────────────────────────────────
 
-def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataFrame:
+def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     """
     Transforms a raw dataframe (train or test) into a flat feature matrix.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Raw data with all band columns + ID, lon, lat.
-    region_series : pd.Series
-        Integer region label (0 or 1) aligned with df.index.
-        Produced by pipelines.eda.regional_analysis.assign_regions.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per location. Columns: ID + all engineered features.
-        No label column — caller appends it if needed.
+    Vectorized implementation for maximum speed.
     """
     n = len(df)
-    feature_rows = []
+    if n == 0:
+        # Handle empty DataFrame gracefully
+        cols = feature_names(exclude_id=False)
+        return pd.DataFrame(columns=cols)
 
-    # Pre-compute all monthly index arrays: shape (n_locations, 12)
-    monthly_index_values: dict[str, np.ndarray] = {}
+    # 1. Precompute indices for each month across all rows
+    monthly_index_values: dict[str, pd.DataFrame] = {}
     for index_name, fn in INDEX_FN_MAP.items():
-        monthly_cols = np.column_stack([
-            fn(df, m).values for m in MONTHS
-        ])  # shape (n, 12)
-        monthly_index_values[index_name] = monthly_cols
+        cols_dict = {}
+        for m in MONTHS:
+            cols_dict[m] = fn(df, m)
+        monthly_index_values[index_name] = pd.DataFrame(cols_dict, index=df.index)
 
-    # Pre-compute all monthly raw band arrays
-    monthly_band_values: dict[str, np.ndarray] = {}
+    # Precompute raw bands for each month
+    monthly_band_values: dict[str, pd.DataFrame] = {}
     for band in ALL_BANDS:
-        monthly_cols = np.column_stack([
-            df[raw_col(band, m)].astype(float).values for m in MONTHS
-        ])  # shape (n, 12)
-        monthly_band_values[band] = monthly_cols
+        cols = [raw_col(band, m) for m in MONTHS]
+        monthly_band_values[band] = df[cols].rename(columns={raw_col(band, m): m for m in MONTHS}).astype(float)
 
-    for i in range(n):
-        row: dict[str, float | int] = {}
+    # 2. Compute window metadata features
+    mask = ~monthly_band_values[ALL_BANDS[0]].isna()  # shape (n, 12)
+    has_valid = mask.any(axis=1).values
+    first_valid = np.argmax(mask.values, axis=1)
+    valid_length = mask.sum(axis=1).values
 
-        # ── Raw band aggregations ──
-        for band in ALL_BANDS:
-            vals = monthly_band_values[band][i]
-            aggs = _agg_series(vals)
-            for agg_name, agg_val in aggs.items():
-                row[f"{band}__{agg_name}"] = agg_val
+    w_start = np.where(has_valid, first_valid + 1, 1)
+    w_length = np.where(has_valid, valid_length, 12)
+    w_center = w_start + (w_length - 1) / 2.0
 
-        # ── Spectral index aggregations ──
-        for index_name in INDEX_FN_MAP:
-            vals = monthly_index_values[index_name][i]
-            aggs = _agg_series(vals)
-            for agg_name, agg_val in aggs.items():
-                row[f"{index_name}__{agg_name}"] = agg_val
+    dict_features = {}
+    dict_features["window_start"] = w_start.astype(float)
+    dict_features["window_length"] = w_length.astype(float)
+    dict_features["window_center"] = w_center
+    dict_features["window_start_sin"] = np.sin(2 * np.pi * w_start / 12.0)
+    dict_features["window_start_cos"] = np.cos(2 * np.pi * w_start / 12.0)
+    dict_features["window_center_sin"] = np.sin(2 * np.pi * w_center / 12.0)
+    dict_features["window_center_cos"] = np.cos(2 * np.pi * w_center / 12.0)
 
-        # ── Persistence counts ──
-        for feat_name, (index_name, operator, threshold) in PERSISTENCE_RULES.items():
-            vals = monthly_index_values[index_name][i]
-            row[feat_name] = _persistence(vals, operator, threshold)
+    # 3. Vectorized aggregations helper
+    def add_aggregations(feats_dict: dict, source_df: pd.DataFrame, prefix: str):
+        mean = source_df.mean(axis=1)
+        std  = source_df.std(axis=1, ddof=1).fillna(0.0)
+        cv   = std / (mean.abs() + 1e-9)
+        min_val = source_df.min(axis=1)
+        max_val = source_df.max(axis=1)
 
-        # ── Consecutive-month change features ──
-        for target in CONSEC_CHANGE_TARGETS:
-            if target in INDEX_FN_MAP:
-                vals = monthly_index_values[target][i]
-            else:
-                vals = monthly_band_values[target][i]
-            changes = _consecutive_changes(vals)
-            for change_name, change_val in changes.items():
-                row[f"{target}__{change_name}"] = change_val
+        feats_dict[f"{prefix}__mean"]   = mean.fillna(0.0)
+        feats_dict[f"{prefix}__median"] = source_df.median(axis=1).fillna(0.0)
+        feats_dict[f"{prefix}__std"]    = std
+        feats_dict[f"{prefix}__min"]    = min_val.fillna(0.0)
+        feats_dict[f"{prefix}__max"]    = max_val.fillna(0.0)
+        feats_dict[f"{prefix}__p10"]    = source_df.quantile(0.1, axis=1).fillna(0.0)
+        feats_dict[f"{prefix}__p90"]    = source_df.quantile(0.9, axis=1).fillna(0.0)
+        feats_dict[f"{prefix}__cv"]     = cv.fillna(0.0)
+        feats_dict[f"{prefix}__range"]  = (max_val - min_val).fillna(0.0)
 
-        # ── Cross-index water agreement ──
-        ndwi_monthly  = monthly_index_values["NDWI"][i]
-        mndwi_monthly = monthly_index_values["MNDWI"][i]
-        awei_monthly  = monthly_index_values["AWEInsh"][i]
+    # Aggregations for raw bands
+    for band in ALL_BANDS:
+        add_aggregations(dict_features, monthly_band_values[band], band)
 
-        all_positive = (ndwi_monthly > 0) & (mndwi_monthly > 0) & (awei_monthly > 0)
-        all_negative = (ndwi_monthly <= 0) & (mndwi_monthly <= 0) & (awei_monthly <= 0)
+    # Aggregations for spectral indices
+    for index_name in INDEX_FN_MAP:
+        add_aggregations(dict_features, monthly_index_values[index_name], index_name)
 
-        row["water_index_agreement"]  = float(np.mean(all_positive))
-        row["water_index_unanimous"]  = float(np.mean(all_positive | all_negative))
+    # 4. Vectorized Persistence fractions
+    for feat_name, (index_name, operator, threshold) in PERSISTENCE_RULES.items():
+        source_df = monthly_index_values[index_name]
+        if operator == ">":
+            cond = source_df > threshold
+        elif operator == "<":
+            cond = source_df < threshold
+        elif operator == ">=":
+            cond = source_df >= threshold
+        elif operator == "<=":
+            cond = source_df <= threshold
+        else:
+            raise ValueError(f"Unknown operator: {operator}")
 
-        feature_rows.append(row)
+        valid_counts = (~source_df.isna()).sum(axis=1)
+        frac = cond.sum(axis=1) / valid_counts.replace(0, 1)
+        dict_features[feat_name] = frac.fillna(0.0)
 
-    features = pd.DataFrame(feature_rows, index=df.index)
+    # 5. Vectorized Consecutive-month changes
+    for target in CONSEC_CHANGE_TARGETS:
+        if target in INDEX_FN_MAP:
+            source_df = monthly_index_values[target]
+        else:
+            source_df = monthly_band_values[target]
 
-    # ── Spatial features ──
-    # features["dist_to_pond_centroid"] = _distance_to_centroid(
-    #     df["lon"], df["lat"]
-    # ).values
-    features["region"] = region_series.values
+        arr = source_df.values
+        nan_mask = np.isnan(arr)
+        
+        # Sort NaNs to the right of the row
+        sorted_indices = np.argsort(nan_mask, axis=1)
+        justified = np.take_along_axis(arr, sorted_indices, axis=1)
+        
+        counts = (~nan_mask).sum(axis=1)
+        diffs = np.abs(np.diff(justified, axis=1))  # shape (n, 11)
 
-    # ── ID passthrough ──
+        row_indices = np.arange(11)[None, :]  # shape (1, 11)
+        diff_mask = row_indices < (counts[:, None] - 1)
+        masked_diffs = np.where(diff_mask, diffs, np.nan)
+
+        diffs_df = pd.DataFrame(masked_diffs, index=df.index)
+        
+        max_change = diffs_df.max(axis=1).fillna(0.0)
+        mean_change = diffs_df.mean(axis=1).fillna(0.0)
+        monotone = (diffs_df < 0.05).sum(axis=1) / (counts - 1).clip(1)
+        monotone = np.where(counts <= 1, 1.0, monotone)
+
+        dict_features[f"{target}__max_consec_change"]  = max_change
+        dict_features[f"{target}__mean_consec_change"] = mean_change
+        dict_features[f"{target}__monotone_fraction"]  = monotone
+
+    # 6. Vectorized Cross-index agreement
+    ndwi_df  = monthly_index_values["NDWI"]
+    mndwi_df = monthly_index_values["MNDWI"]
+    awei_df  = monthly_index_values["AWEInsh"]
+
+    all_positive = (ndwi_df > 0) & (mndwi_df > 0) & (awei_df > 0)
+    all_negative = (ndwi_df <= 0) & (mndwi_df <= 0) & (awei_df <= 0)
+
+    valid_counts = (~ndwi_df.isna()).sum(axis=1)
+
+    row_agreement = all_positive.sum(axis=1) / valid_counts.replace(0, 1)
+    row_unanimous = (all_positive | all_negative).sum(axis=1) / valid_counts.replace(0, 1)
+
+    dict_features["water_index_agreement"] = row_agreement.fillna(0.0)
+    dict_features["water_index_unanimous"] = row_unanimous.fillna(0.0)
+
+    # 7. ID passthrough and assembly
+    result_features = pd.DataFrame(dict_features, index=df.index)
     result = pd.concat([df[["ID"]].reset_index(drop=True),
-                        features.reset_index(drop=True)], axis=1)
+                        result_features.reset_index(drop=True)], axis=1)
     return result
 
 
@@ -202,6 +255,18 @@ def feature_names(exclude_id: bool = True) -> list[str]:
     Use this to validate the feature matrix contract downstream.
     """
     cols = []
+    
+    # Metadata features first
+    cols.extend([
+        "window_start",
+        "window_length",
+        "window_center",
+        "window_start_sin",
+        "window_start_cos",
+        "window_center_sin",
+        "window_center_cos",
+    ])
+
     agg_suffixes = ["mean", "median", "std", "min", "max", "p10", "p90", "cv", "range"]
 
     for band in ALL_BANDS:
@@ -221,9 +286,6 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")
-
-    # cols.append("dist_to_pond_centroid")
-    cols.append("region")
 
     if not exclude_id:
         cols = ["ID"] + cols

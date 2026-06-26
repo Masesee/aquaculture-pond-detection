@@ -1,14 +1,15 @@
 """
-Optuna hyperparameter sweep for LightGBM.
-Optimises the Zindi combined score (0.6*F1 + 0.4*AUC) on OOF predictions.
+Optuna hyperparameter sweep for LightGBM on masked temporal features.
+Optimises the Zindi combined score (0.6*F1 + 0.4*AUC) on OOF predictions
+using StratifiedGroupKFold to prevent data leakage.
 
 Run with:
     python -m pipelines.training.tune
 
 Outputs:
-    experiments/logs/optuna_study.db       ← resumable SQLite study
-    experiments/logs/optuna_results.csv    ← all trial results
-    outputs/models/best_params.json        ← best hyperparameters
+    experiments/logs/optuna_study_masked.db       ← fresh resumable SQLite study
+    experiments/logs/optuna_results.csv           ← all trial results
+    outputs/models/best_params.json               ← best hyperparameters
 """
 
 import sys
@@ -38,46 +39,40 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_SPLITS      = 5
 RANDOM_STATE  = 42
-N_TRIALS      = 200
-STUDY_NAME    = "lgbm_aquaculture"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study.db'}"
+N_TRIALS      = 100
+STUDY_NAME    = "lgbm_aquaculture_regularized"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_regularized.db'}"
 
 
-def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
-    # Sub 22 best: n_est=870, lr=0.1076, leaves=102, depth=8,
-    #              min_child=85, subsample=0.647, colsample=0.373,
-    #              reg_alpha=1.3e-4, reg_lambda=1.3e-3
+def objective(trial: optuna.Trial, train_df: pd.DataFrame, feature_cols: list[str]) -> float:
+    # Tuned parameters space search centered around robust baseline settings
     params = {
         "objective":         "binary",
         "boosting_type":     "gbdt",
-        "n_estimators":      trial.suggest_int(  "n_estimators",      750,    980),
-        "learning_rate":     trial.suggest_float("learning_rate",      0.085,  0.130, log=True),
-        "num_leaves":        trial.suggest_int(  "num_leaves",         85,     120),
-        "max_depth":         trial.suggest_int(  "max_depth",          6,      10),
-        "min_child_samples": trial.suggest_int(  "min_child_samples",  70,     100),
-        "subsample":         trial.suggest_float("subsample",          0.55,   0.75),
+        "n_estimators":      trial.suggest_int(  "n_estimators",      150,    450),
+        "learning_rate":     trial.suggest_float("learning_rate",      0.01,   0.08, log=True),
+        "num_leaves":        trial.suggest_int(  "num_leaves",         15,     45),
+        "max_depth":         trial.suggest_int(  "max_depth",          3,      6),
+        "min_child_samples": trial.suggest_int(  "min_child_samples",  100,    300),
+        "subsample":         trial.suggest_float("subsample",          0.60,   0.90),
         "subsample_freq":    1,
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.32,   0.43),
-        "reg_alpha":         trial.suggest_float("reg_alpha",          5e-5,   5e-4,  log=True),
-        "reg_lambda":        trial.suggest_float("reg_lambda",         4e-4,   5e-3,  log=True),
-        "class_weight":      "balanced",
+        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.30,   0.70),
+        "reg_alpha":         trial.suggest_float("reg_alpha",          0.01,   10.0,  log=True),
+        "reg_lambda":        trial.suggest_float("reg_lambda",         0.1,    50.0,  log=True),
+        "class_weight":      None,
         "random_state":      RANDOM_STATE,
         "n_jobs":            -1,
         "verbose":           -1,
     }
 
-
-    splits    = make_cv_splits(
-        pd.DataFrame({"label": y, "region": X["region"].values}),
-        n_splits=N_SPLITS,
-        random_state=RANDOM_STATE,
-    )
+    splits = make_cv_splits(train_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
+    y = train_df[TARGET_COL].values
     oof_probs = np.zeros(len(y), dtype=float)
 
     for train_pos, val_pos in splits:
-        X_tr  = X.iloc[train_pos]
+        X_tr  = train_df[feature_cols].iloc[train_pos]
         y_tr  = y[train_pos]
-        X_val = X.iloc[val_pos]
+        X_val = train_df[feature_cols].iloc[val_pos]
 
         model = lgb.LGBMClassifier(**params)
         model.fit(X_tr, y_tr)
@@ -92,10 +87,16 @@ def objective(trial: optuna.Trial, X: pd.DataFrame, y: np.ndarray) -> float:
 def main() -> None:
     print("=== Loading features ===")
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
-    feature_cols = [c for c in train_df.columns if c not in ["ID", TARGET_COL]]
-    X = train_df[feature_cols]
-    y = train_df[TARGET_COL].values
-    print(f"  X: {X.shape} | positive rate: {y.mean():.3f}")
+    
+    invariant_path = ROOT / "outputs" / "features" / "invariant_features.txt"
+    if invariant_path.exists():
+        with open(invariant_path) as f:
+            feature_cols = [line.strip() for line in f if line.strip()]
+        print(f"  Loaded {len(feature_cols)} robust features from invariant_features.txt")
+    else:
+        feature_cols = [c for c in train_df.columns if c not in ["ID", TARGET_COL]]
+        print(f"  Using all {len(feature_cols)} features (no invariant_features.txt found)")
+    print(f"  X: {train_df[feature_cols].shape} | positive rate: {train_df[TARGET_COL].mean():.3f}")
 
     print(f"\n=== Running Optuna ({N_TRIALS} trials) ===")
     study = optuna.create_study(
@@ -105,7 +106,7 @@ def main() -> None:
         load_if_exists = True,
     )
     study.optimize(
-        lambda trial: objective(trial, X, y),
+        lambda trial: objective(trial, train_df, feature_cols),
         n_trials    = N_TRIALS,
         show_progress_bar = True,
     )
