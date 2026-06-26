@@ -125,8 +125,65 @@ def _seasonal_shape(monthly_values: np.ndarray) -> dict[str, float]:
 SEASONAL_SHAPE_TARGETS = ["NDWI", "MNDWI", "NDTI", "NDWI2", "SAR_RVI", "re1_nir", "SABI"]
 
 
+# ── Temporal autocorrelation features (v6.4) ─────────────────────────────────
 
-# ── Spatial features ───────────────────────────────────────────────────────────
+_AUTOCORR_LAGS = (1, 2, 3)
+
+
+def _temporal_autocorr(monthly_values: np.ndarray) -> dict[str, float]:
+    """
+    Pearson autocorrelation at lags 1, 2, 3 for a 12-month time series.
+
+    Captures temporal SELF-SIMILARITY — how well the signal at month t
+    predicts the signal at month t+k. This is qualitatively different from:
+
+    - seasonal_amplitude / harmonic_A1 : measure HOW MUCH the signal varies
+      (magnitude of seasonal swing). AC measures direction + structure.
+    - mean_consec_change : measures magnitude of consecutive jumps (inversely
+      related to AC(1) but misses the directional / oscillatory structure).
+    - monotone_fraction : measures directional trend, not self-similarity.
+
+    Physical interpretation
+    -----------------------
+    AC(1) : Month-to-month persistence.
+        Permanent pond (flat signal)  → AC(1) ≈ 1.0.
+        Seasonal wetland (slow transition) → AC(1) ≈ 0.6–0.9 (varies near wet–dry boundary).
+        Aquaculture with harvest/drain cycles → AC(1) could be LOW (sharp transitions).
+
+    AC(2) : 2-month lag persistence. Adds discriminative info for step-change patterns.
+
+    AC(3) : 3-month lag. Independent of AC(1) for non-sinusoidal signals.
+        A strictly periodic 3-month cycle has AC(1)≈0 but AC(3)≈1.
+
+    Temporal invariance: AC(k) measures a structural property of the time series
+    that repeats annually for any fixed land cover type. A permanent pond has
+    high AC(1) every year; a seasonal wetland has lower, variable AC(1) every year.
+    Safe across training and test periods from different calendar years.
+
+    Handles constant signals (std=0) by returning 0.0 (no correlation defined).
+    """
+    result: dict[str, float] = {}
+    for lag in _AUTOCORR_LAGS:
+        x = monthly_values[:-lag]
+        y = monthly_values[lag:]
+        # Guard against constant series (std = 0)
+        if x.std() < 1e-9 or y.std() < 1e-9:
+            result[f"autocorr_lag{lag}"] = 0.0
+        else:
+            result[f"autocorr_lag{lag}"] = float(np.corrcoef(x, y)[0, 1])
+    return result
+
+
+# Indices to compute autocorrelation for.
+# Top-5 SHAP contributors: primary water / vegetation / radar indices.
+# NOT applied to NDWI2/SABI/CI — they correlate strongly with NDWI/MNDWI
+# so AC(k) would be near-identical, adding redundancy without new signal.
+AUTOCORR_TARGETS = ["NDWI", "MNDWI", "NDTI", "SAR_RVI", "re1_nir"]
+
+
+
+# -- Spatial features ----------------------------------------------------------
+
 
 # Pond cluster centroid — derived from region_map visual inspection.
 # The dense orange cluster sits around lon=48.85, lat=39.48.
@@ -223,6 +280,13 @@ def build_feature_matrix(df: pd.DataFrame, region_series: pd.Series) -> pd.DataF
             for shape_name, shape_val in shape.items():
                 row[f"{target}__{shape_name}"] = shape_val
 
+        # ── Temporal autocorrelation features (v6.4) ──
+        for target in AUTOCORR_TARGETS:
+            vals = monthly_index_values[target][i]
+            ac = _temporal_autocorr(vals)
+            for ac_name, ac_val in ac.items():
+                row[f"{target}__{ac_name}"] = ac_val
+
         # ── Cross-index water agreement ──
         ndwi_monthly  = monthly_index_values["NDWI"][i]
         mndwi_monthly = monthly_index_values["MNDWI"][i]
@@ -276,6 +340,10 @@ def feature_names(exclude_id: bool = True) -> list[str]:
     for target in SEASONAL_SHAPE_TARGETS:
         for suffix in ["peak_month", "trough_month", "seasonal_amplitude"]:
             cols.append(f"{target}__{suffix}")
+
+    for target in AUTOCORR_TARGETS:
+        for lag in _AUTOCORR_LAGS:
+            cols.append(f"{target}__autocorr_lag{lag}")
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")

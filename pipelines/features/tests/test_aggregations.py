@@ -252,3 +252,91 @@ def test_seasonal_shape_month_indices_in_range(minimal_raw_df, minimal_regions):
     for target in SEASONAL_SHAPE_TARGETS:
         assert result[f'{target}__peak_month'].between(0, 11).all()
         assert result[f'{target}__trough_month'].between(0, 11).all()
+
+
+# -- Temporal autocorrelation tests (v6.4) ------------------------------------
+
+from pipelines.features.aggregations import _temporal_autocorr, AUTOCORR_TARGETS, _AUTOCORR_LAGS
+
+
+def test_autocorr_output_keys():
+    vals = np.arange(12, dtype=float)
+    result = _temporal_autocorr(vals)
+    assert set(result.keys()) == {f'autocorr_lag{k}' for k in _AUTOCORR_LAGS}
+
+
+def test_autocorr_flat_signal_returns_zero():
+    '''Constant signal has undefined AC -- should return 0.0 safely.'''
+    result = _temporal_autocorr(np.full(12, 0.5))
+    for k in _AUTOCORR_LAGS:
+        assert result[f'autocorr_lag{k}'] == pytest.approx(0.0)
+
+
+def test_autocorr_linear_trend_lag1_positive():
+    '''Monotonically increasing signal -> AC(1) positive.'''
+    vals = np.arange(12, dtype=float)
+    result = _temporal_autocorr(vals)
+    assert result['autocorr_lag1'] > 0.9
+
+
+def test_autocorr_alternating_signal_lag1_negative():
+    '''Perfectly alternating signal -> AC(1) < 0.'''
+    vals = np.array([1.0, -1.0] * 6)
+    result = _temporal_autocorr(vals)
+    assert result['autocorr_lag1'] < 0
+
+
+def test_autocorr_smooth_wetland_higher_lag1_than_noisy_signal():
+    '''
+    Smooth seasonal wetland (slow gradient) has HIGH AC(1) because adjacent
+    months are strongly correlated. A noisy/flat pond signal has NEAR-ZERO AC(1)
+    because random noise is uncorrelated at any lag.
+    This is the correct physical interpretation: AC(1) helps identify smooth
+    seasonal variation, not permanent-pond flatness.
+    '''
+    wetland = np.array([-0.3,-0.2,-0.1,0.0,0.1,0.5,0.6,0.5,0.2,-0.1,-0.2,-0.3])
+    noisy   = np.random.default_rng(42).uniform(-0.5, 0.5, 12)  # random, no structure
+    assert _temporal_autocorr(wetland)['autocorr_lag1'] > _temporal_autocorr(noisy)['autocorr_lag1']
+
+
+def test_autocorr_step_change_low_lag1():
+    '''
+    Aquaculture-like step change (pond drained midyear) -> low / negative AC(1)
+    at the transition, pulling the overall series AC(1) down.
+    '''
+    step = np.array([0.6,0.6,0.6,0.6,0.6,0.1,0.1,0.1,0.1,0.1,0.6,0.6], dtype=float)
+    smooth = np.array([-0.3,-0.2,-0.1,0.0,0.1,0.5,0.6,0.5,0.2,-0.1,-0.2,-0.3])
+    # step signal should have lower AC(1) than smooth gradual signal
+    assert _temporal_autocorr(step)['autocorr_lag1'] < _temporal_autocorr(smooth)['autocorr_lag1']
+
+
+def test_autocorr_range():
+    '''AC values must be in [-1, 1].'''
+    vals = np.random.default_rng(0).uniform(-1, 1, 12)
+    result = _temporal_autocorr(vals)
+    for k in _AUTOCORR_LAGS:
+        assert -1.0 <= result[f'autocorr_lag{k}'] <= 1.0
+
+
+def test_autocorr_in_feature_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in AUTOCORR_TARGETS:
+        for k in _AUTOCORR_LAGS:
+            col = f'{target}__autocorr_lag{k}'
+            assert col in result.columns, f'Missing: {col}'
+            assert not result[col].isna().any(), f'NaN in: {col}'
+
+
+def test_autocorr_in_feature_names():
+    names = feature_names()
+    for target in AUTOCORR_TARGETS:
+        for k in _AUTOCORR_LAGS:
+            assert f'{target}__autocorr_lag{k}' in names
+
+
+def test_autocorr_values_bounded_in_matrix(minimal_raw_df, minimal_regions):
+    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    for target in AUTOCORR_TARGETS:
+        for k in _AUTOCORR_LAGS:
+            col = f'{target}__autocorr_lag{k}'
+            assert result[col].between(-1.0, 1.0).all(), f'Out of range: {col}'
