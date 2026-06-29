@@ -15,7 +15,6 @@ sys.path.insert(0, str(ROOT))
 
 from contracts.schema import MONTHS, ALL_BANDS, TARGET_COL, raw_col
 from pipelines.eda.spectral_separation import _ndwi, _sar_ratio
-from pipelines.eda.regional_analysis import assign_regions
 
 
 @pytest.fixture
@@ -24,8 +23,6 @@ def minimal_train() -> pd.DataFrame:
     rng = np.random.default_rng(42)
     n = 8
     data = {"ID": [f"ID_TR_{i:04d}" for i in range(n)]}
-    data["lon"] = rng.uniform(48.0, 49.5, n)
-    data["lat"] = rng.uniform(39.0, 40.5, n)
     data[TARGET_COL] = [0, 0, 0, 0, 1, 1, 1, 1]
 
     for band in ALL_BANDS:
@@ -54,14 +51,6 @@ def test_sar_ratio_positive(minimal_train):
     for month in MONTHS:
         vals = _sar_ratio(minimal_train, month)
         assert (vals > 0).all(), f"SAR ratio has non-positive values in month {month}"
-
-
-def test_assign_regions_labels(minimal_train):
-    """Region assignment returns 0/1 integers aligned with input index."""
-    regions = assign_regions(minimal_train)
-    assert set(regions.unique()).issubset({0, 1}), "Expected exactly 2 region labels"
-    assert len(regions) == len(minimal_train)
-    assert regions.index.equals(minimal_train.index)
 
 
 def test_schema_validate_train(minimal_train):

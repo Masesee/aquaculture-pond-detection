@@ -142,6 +142,42 @@ def main() -> None:
         feature_cols = [c for c in train_df.columns if c not in ["ID", TARGET_COL]]
         print(f"  Using all {len(feature_cols)} features (no invariant_features.txt found)")
 
+    # ── Optional: Exclude window metadata features ────────────────────────────
+    exclude_metadata = "--no-exclude-metadata" not in sys.argv
+    if exclude_metadata:
+        metadata_cols = [
+            "window_start", "window_length", "window_center",
+            "window_start_sin", "window_start_cos",
+            "window_center_sin", "window_center_cos"
+        ]
+        feature_cols = [c for c in feature_cols if c not in metadata_cols]
+        print(f"  Excluded window metadata features. Remaining: {len(feature_cols)}")
+
+    # ── Optional: Quantile Transformation ──────────────────────────────────────
+    use_quantile = "--no-quantile" not in sys.argv
+    if use_quantile:
+        from sklearn.preprocessing import QuantileTransformer
+        print("  Applying Quantile Transformation separately to train and test sets...")
+        qt_train = QuantileTransformer(n_quantiles=1000, random_state=42, output_distribution="normal")
+        qt_test = QuantileTransformer(n_quantiles=1000, random_state=42, output_distribution="normal")
+        
+        train_features_trans = pd.DataFrame(
+            qt_train.fit_transform(train_df[feature_cols]),
+            columns=feature_cols,
+            index=train_df.index
+        )
+        test_features_trans = pd.DataFrame(
+            qt_test.fit_transform(test_df[feature_cols]),
+            columns=feature_cols,
+            index=test_df.index
+        )
+        
+        for col in feature_cols:
+            train_df[col] = train_features_trans[col]
+            test_df[col] = test_features_trans[col]
+            
+        print("  Quantile Transformation complete.")
+
     X_train = train_df[feature_cols]
     y_train = train_df[TARGET_COL].values
     X_test  = test_df[feature_cols]
@@ -169,10 +205,14 @@ def main() -> None:
         active_params = LGBM_PARAMS
         print("  Using default params (no tuning found)")
 
-    # ── CV splits (Group-Aware Stratified CV) ─────────────────────────────────
-    print(f"\n=== {N_SPLITS}-fold stratified group CV (grouped by original ID) ===")
-    splits = make_cv_splits(train_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
-    split_summary = describe_splits(train_df, splits)
+    # ── CV splits (Group-Aware Stratified CV on single-window validation subset) ──
+    from pipelines.training.cv_strategy import get_single_window_indices
+    single_win_indices = get_single_window_indices(train_df, random_state=42)
+    train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
+
+    print(f"\n=== {N_SPLITS}-fold stratified group CV (on 1-window-per-sample validation subset) ===")
+    splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
+    split_summary = describe_splits(train_df_single, splits)
     print(split_summary.to_string(index=False))
 
     # ── Optional pseudo-labeling ───────────────────────────────────────────
@@ -192,30 +232,32 @@ def main() -> None:
         )
         train_augmented = pd.concat([train_df, pseudo_df], ignore_index=True)
         print(f"  Training size: {len(train_df)} → {len(train_augmented)} (+{n_pseudo} pseudo-labeled)")
-
-        X_train_full = train_augmented[feature_cols]
-        y_train_full = train_augmented[TARGET_COL].values
-
-        # pseudo rows are always in train, never in val
-        splits_for_pseudo = [
-            (
-                np.concatenate([tr, np.arange(len(train_df), len(train_augmented))]),
-                val
-            )
-            for tr, val in splits
-        ]
     else:
-        X_train_full     = X_train
-        y_train_full     = y_train
-        splits_for_pseudo = splits
+        train_augmented = train_df
 
     # ── OOF loop ──────────────────────────────────────────────────────────────
-    oof_probs   = np.zeros(len(train_df), dtype=float)
+    oof_probs   = np.zeros(len(train_df_single), dtype=float)
     fold_scores = []
 
-    for fold, (train_pos, val_pos) in enumerate(splits_for_pseudo):
-        X_tr, y_tr = X_train_full.iloc[train_pos], y_train_full[train_pos]
-        X_val, y_val = X_train_full.iloc[val_pos], y_train_full[val_pos]
+    for fold, (train_pos, val_pos) in enumerate(splits):
+        # val_pos refers to index in train_df_single. Map back to train_df:
+        val_idx_in_train_df = single_win_indices[val_pos]
+        val_base_ids = set(train_df_single.iloc[val_pos]["ID"].apply(lambda x: x.split("_w")[0]))
+
+        X_val = train_df.iloc[val_idx_in_train_df][feature_cols]
+        y_val = train_df.iloc[val_idx_in_train_df][TARGET_COL].values
+
+        if use_pseudo:
+            # Train mask: rows in train_df not in validation base IDs
+            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+            pseudo_mask = np.ones(len(pseudo_df), dtype=bool)
+            full_train_mask = np.concatenate([train_mask, pseudo_mask])
+            X_tr = train_augmented.loc[full_train_mask, feature_cols]
+            y_tr = train_augmented.loc[full_train_mask, TARGET_COL].values
+        else:
+            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+            X_tr = train_df.loc[train_mask, feature_cols]
+            y_tr = train_df.loc[train_mask, TARGET_COL].values
 
         # CV models use early stopping
         cv_params = {k: v for k, v in active_params.items() if k != "n_estimators"}
@@ -252,8 +294,9 @@ def main() -> None:
 
     # ── OOF aggregate metrics (without prior shift correction, evaluated on OOF distribution)
     oof_preds = (oof_probs >= 0.5).astype(int)
-    oof_f1    = f1_score(y_train, oof_preds)
-    oof_auc   = roc_auc_score(y_train, oof_probs)
+    y_train_single = train_df_single[TARGET_COL].values
+    oof_f1    = f1_score(y_train_single, oof_preds)
+    oof_auc   = roc_auc_score(y_train_single, oof_probs)
     oof_score = combined_score(oof_f1, oof_auc)
 
     print(f"\n  OOF aggregate (pre-cal) — F1={oof_f1:.4f} | AUC={oof_auc:.4f} | Score={oof_score:.4f}")
@@ -267,16 +310,16 @@ def main() -> None:
 
     # ── Calibration ───────────────────────────────────────────────────────────
     print("\n=== Fitting calibrator on OOF predictions ===")
-    calibrator    = fit_calibrator(oof_probs, y_train)
+    calibrator    = fit_calibrator(oof_probs, y_train_single)
     cal_probs_oof = apply_calibrator(calibrator, oof_probs)
 
     cal_preds_oof = (cal_probs_oof >= 0.5).astype(int)
-    cal_f1        = f1_score(y_train, cal_preds_oof)
-    cal_auc       = roc_auc_score(y_train, cal_probs_oof)
+    cal_f1        = f1_score(y_train_single, cal_preds_oof)
+    cal_auc       = roc_auc_score(y_train_single, cal_probs_oof)
     cal_score     = combined_score(cal_f1, cal_auc)
     print(f"  Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
-    cal_summary = calibration_summary(oof_probs, cal_probs_oof, y_train)
+    cal_summary = calibration_summary(oof_probs, cal_probs_oof, y_train_single)
     cal_summary.to_csv(MODELS_DIR / "calibration_summary.csv", index=False)
     print("  Calibration summary saved.")
 
@@ -319,11 +362,11 @@ def main() -> None:
 
     # ── Save OOF predictions ──────────────────────────────────────────────────
     oof_df = pd.DataFrame({
-        "ID":          train_df["ID"].values,
-        "label":       y_train,
+        "ID":          train_df_single["ID"].values,
+        "label":       y_train_single,
         "oof_prob_raw": oof_probs,
         "oof_prob_cal": cal_probs_oof,
-        "oof_pred":    oof_preds,
+        "oof_pred":    cal_preds_oof,
     })
     oof_df.to_csv(MODELS_DIR / "oof_predictions.csv", index=False)
 
@@ -332,6 +375,11 @@ def main() -> None:
     save_calibrator(calibrator, MODELS_DIR / "calibrator.joblib")
     print("  Saved: outputs/models/lgbm_model.joblib")
     print("  Saved: outputs/models/calibrator.joblib")
+    if use_quantile:
+        joblib.dump(qt_train, MODELS_DIR / "quantile_transformer_train.joblib")
+        joblib.dump(qt_test, MODELS_DIR / "quantile_transformer_test.joblib")
+        print("  Saved: outputs/models/quantile_transformer_train.joblib")
+        print("  Saved: outputs/models/quantile_transformer_test.joblib")
 
     # ── Build submission ──────────────────────────────────────────────────────
     print("\n=== Building submission file ===")

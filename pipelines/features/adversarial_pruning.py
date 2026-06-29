@@ -39,12 +39,17 @@ def main() -> None:
     train_df = pd.read_parquet(train_path)
     test_df = pd.read_parquet(test_path)
 
+    # Use 1-window-per-sample subset for train set to match test set distribution format
+    from pipelines.training.cv_strategy import get_single_window_indices
+    single_indices = get_single_window_indices(train_df, random_state=42)
+    train_df_single = train_df.iloc[single_indices].reset_index(drop=True)
+
     # Initial feature set (exclude ID and label)
     feature_cols = [c for c in test_df.columns if c not in ["ID", TARGET_COL]]
     initial_count = len(feature_cols)
     
     # Prepare combined dataset
-    X_train = train_df[feature_cols].copy()
+    X_train = train_df_single[feature_cols].copy()
     y_train = np.zeros(len(X_train))
     
     X_test = test_df[feature_cols].copy()
@@ -54,7 +59,7 @@ def main() -> None:
     y = np.concatenate([y_train, y_test])
     
     # Groups for Stratified Group CV
-    train_groups = train_df["ID"].apply(lambda x: x.split("_w")[0]).values
+    train_groups = train_df_single["ID"].apply(lambda x: x.split("_w")[0]).values
     test_groups = test_df["ID"].values
     groups = np.concatenate([train_groups, test_groups])
 

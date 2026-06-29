@@ -45,7 +45,7 @@ def all_raw_cols() -> list[str]:
     return [raw_col(b, m) for b in ALL_BANDS for m in MONTHS]
 
 # Metadata columns
-META_COLS = ["ID", "lon", "lat"]
+META_COLS = ["ID"]
 TARGET_COL = "label"
 
 # Temporal aggregation suffixes applied to every band and index

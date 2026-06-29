@@ -31,8 +31,6 @@ def minimal_raw_df() -> pd.DataFrame:
     n = 6
     data = {
         "ID":  [f"ID_TR_{i:04d}" for i in range(n)],
-        "lon": rng.uniform(48.0, 49.5, n),
-        "lat": rng.uniform(39.0, 40.5, n),
     }
     for band in ALL_BANDS:
         for month in MONTHS:
@@ -41,11 +39,6 @@ def minimal_raw_df() -> pd.DataFrame:
             else:
                 data[raw_col(band, month)] = rng.uniform(300, 6000, n)
     return pd.DataFrame(data)
-
-
-@pytest.fixture
-def minimal_regions(minimal_raw_df) -> pd.Series:
-    return pd.Series([0, 0, 0, 1, 1, 1], index=minimal_raw_df.index)
 
 
 # ── _agg_series unit tests ─────────────────────────────────────────────────────
@@ -79,54 +72,54 @@ def test_agg_series_constant():
 
 def test_persistence_all_positive():
     vals = np.array([0.1, 0.2, 0.3] * 4)
-    assert _persistence(vals, ">", 0.0) == 12
+    assert np.isclose(_persistence(vals, ">", 0.0), 1.0)
 
 
 def test_persistence_none():
     vals = np.array([-0.1, -0.2, -0.3] * 4)
-    assert _persistence(vals, ">", 0.0) == 0
+    assert np.isclose(_persistence(vals, ">", 0.0), 0.0)
 
 
 def test_persistence_partial():
     vals = np.array([0.1, -0.1] * 6)
-    assert _persistence(vals, ">", 0.0) == 6
+    assert np.isclose(_persistence(vals, ">", 0.0), 0.5)
 
 
 def test_persistence_less_than():
     vals = np.array([-20.0] * 8 + [-10.0] * 4)
-    assert _persistence(vals, "<", -15.0) == 8
+    assert np.isclose(_persistence(vals, "<", -15.0), 8.0 / 12.0)
 
 
 # ── build_feature_matrix integration tests ────────────────────────────────────
 
-def test_feature_matrix_shape(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_feature_matrix_shape(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     expected_feat_count = len(feature_names()) + 1  # +1 for ID column
     assert result.shape == (6, expected_feat_count), (
         f"Expected shape (6, {expected_feat_count}), got {result.shape}"
     )
 
 
-def test_feature_matrix_no_nan(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_feature_matrix_no_nan(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     feat_cols = [c for c in result.columns if c != "ID"]
     assert not result[feat_cols].isna().any().any(), "Feature matrix contains NaN values"
 
 
-def test_feature_matrix_no_inf(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_feature_matrix_no_inf(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     feat_cols = [c for c in result.columns if c != "ID"]
     assert not np.isinf(result[feat_cols].values).any(), "Feature matrix contains Inf values"
 
 
-def test_feature_matrix_id_preserved(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_feature_matrix_id_preserved(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     assert list(result["ID"]) == list(minimal_raw_df["ID"])
 
 
-def test_feature_names_contract(minimal_raw_df, minimal_regions):
+def test_feature_names_contract(minimal_raw_df):
     """Column order from build_feature_matrix must match feature_names() contract."""
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+    result = build_feature_matrix(minimal_raw_df)
     actual_feat_cols   = [c for c in result.columns if c != "ID"]
     expected_feat_cols = feature_names(exclude_id=True)
     assert actual_feat_cols == expected_feat_cols, (
@@ -136,20 +129,15 @@ def test_feature_names_contract(minimal_raw_df, minimal_regions):
     )
 
 
-def test_region_values_binary(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
-    assert set(result["region"].unique()).issubset({0, 1})
-
-
-def test_persistence_counts_integer(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_persistence_fractions_range(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     for feat in PERSISTENCE_RULES:
         col = result[feat]
-        assert col.dtype in [np.int64, np.int32, int, np.int_], (
-            f"Persistence feature {feat} should be integer, got {col.dtype}"
+        assert col.dtype in [np.float64, np.float32, float], (
+            f"Persistence feature {feat} should be float, got {col.dtype}"
         )
-        assert col.between(0, 12).all(), (
-            f"Persistence feature {feat} out of [0,12]: {col.values}"
+        assert col.between(0.0, 1.0).all(), (
+            f"Persistence feature {feat} out of [0.0, 1.0]: {col.values}"
         )
 
 
@@ -177,16 +165,16 @@ def test_consecutive_changes_output_keys():
     assert set(result.keys()) == {"max_consec_change", "mean_consec_change", "monotone_fraction"}
 
 
-def test_water_index_agreement_in_feature_matrix(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_water_index_agreement_in_feature_matrix(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     assert "water_index_agreement" in result.columns
     assert "water_index_unanimous" in result.columns
     assert result["water_index_agreement"].between(0.0, 1.0).all()
     assert result["water_index_unanimous"].between(0.0, 1.0).all()
 
 
-def test_consec_change_features_in_matrix(minimal_raw_df, minimal_regions):
-    result = build_feature_matrix(minimal_raw_df, minimal_regions)
+def test_consec_change_features_in_matrix(minimal_raw_df):
+    result = build_feature_matrix(minimal_raw_df)
     for target in CONSEC_CHANGE_TARGETS:
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
             col = f"{target}__{suffix}"

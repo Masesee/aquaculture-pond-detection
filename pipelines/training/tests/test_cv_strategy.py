@@ -13,44 +13,24 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from contracts.schema import TARGET_COL
-from pipelines.training.cv_strategy import make_strata, make_cv_splits, describe_splits
+from pipelines.training.cv_strategy import make_cv_splits, describe_splits
 
 
 @pytest.fixture
 def synthetic_train_df() -> pd.DataFrame:
     """
-    80-row dataframe mimicking the real class/region distribution:
-    region 0: 27 rows, 4% pond  (~1 pond)
-    region 1: 53 rows, 59% pond (~31 ponds)
+    80-row dataframe mimicking the real class distribution.
+    Includes ID and TARGET_COL.
     """
     rng = np.random.default_rng(42)
-    n0, n1 = 27, 53
-
-    labels_r0 = np.array([1] + [0] * (n0 - 1))   # 1 pond in region 0
-    labels_r1 = np.array([1] * 31 + [0] * (n1 - 31))
-
-    labels  = np.concatenate([labels_r0, labels_r1])
-    regions = np.array([0] * n0 + [1] * n1)
-
+    n = 80
+    labels = rng.choice([0, 1], size=n)
     df = pd.DataFrame({
+        "ID": [f"ID_TR_NEW_{i:04d}" for i in range(n)],
         TARGET_COL: labels,
-        "region":   regions,
-        "feature1": rng.standard_normal(n0 + n1),
+        "feature1": rng.standard_normal(n),
     })
     return df
-
-
-def test_make_strata_values(synthetic_train_df):
-    strata = make_strata(synthetic_train_df[TARGET_COL], synthetic_train_df["region"])
-    assert set(strata.unique()).issubset({0, 1, 2, 3})
-
-
-def test_make_strata_encoding(synthetic_train_df):
-    """Stratum 3 = pond (label=1) AND region 1."""
-    strata = make_strata(synthetic_train_df[TARGET_COL], synthetic_train_df["region"])
-    is_stratum_3 = strata == 3
-    is_pond_r1   = (synthetic_train_df[TARGET_COL] == 1) & (synthetic_train_df["region"] == 1)
-    assert (is_stratum_3 == is_pond_r1).all()
 
 
 def test_cv_splits_count(synthetic_train_df):
@@ -77,13 +57,13 @@ def test_cv_splits_train_val_disjoint(synthetic_train_df):
 def test_describe_splits_shape(synthetic_train_df):
     splits = make_cv_splits(synthetic_train_df, n_splits=5)
     summary = describe_splits(synthetic_train_df, splits)
-    assert summary.shape == (5, 7)
+    assert summary.shape == (5, 4)
 
 
 def test_describe_splits_val_sizes_sum(synthetic_train_df):
     splits = make_cv_splits(synthetic_train_df, n_splits=5)
     summary = describe_splits(synthetic_train_df, splits)
-    assert summary["n_val"].sum() == len(synthetic_train_df)
+    assert summary["n_val_rows"].sum() == len(synthetic_train_df)
 
 
 def test_cv_reproducible(synthetic_train_df):
@@ -105,8 +85,8 @@ def test_pseudo_label_indices_never_in_val():
 
     # Simulate original splits on 80 rows
     base_df  = pd.DataFrame({
+        "ID": [f"ID_TR_NEW_{i:04d}" for i in range(n_orig)],
         TARGET_COL: np.random.default_rng(0).integers(0, 2, n_orig),
-        "region":   np.random.default_rng(1).integers(0, 2, n_orig),
     })
     splits = make_cv_splits(base_df, n_splits=5)
 
@@ -134,8 +114,8 @@ def test_iterative_pseudo_val_indices_clean():
     n_pseudo = 20
 
     base_df = pd.DataFrame({
+        "ID": [f"ID_TR_NEW_{i:04d}" for i in range(n_orig)],
         TARGET_COL: np.random.default_rng(0).integers(0, 2, n_orig),
-        "region":   np.random.default_rng(1).integers(0, 2, n_orig),
     })
     splits = make_cv_splits(base_df, n_splits=5)
     pseudo_indices = np.arange(n_orig, n_orig + n_pseudo)
@@ -152,3 +132,29 @@ def test_iterative_pseudo_val_indices_clean():
                 f"Iter {iteration} Fold {fold}: val index {max(val)} "
                 f">= n_orig {n_orig}"
             )
+
+
+def test_get_single_window_indices():
+    """get_single_window_indices must select exactly one window copy per base sample."""
+    from pipelines.training.cv_strategy import get_single_window_indices
+
+    # Create dummy data with 5 base samples, each repeated 3 times with _w0, _w1, _w2
+    df = pd.DataFrame({
+        "ID": [
+            f"ID_TR_{i}_w{w}"
+            for w in range(3)
+            for i in range(5)
+        ],
+        TARGET_COL: [0, 1, 0, 1, 0] * 3
+    })
+    
+    indices = get_single_window_indices(df, random_state=42)
+    assert len(indices) == 5
+    
+    selected_ids = df.iloc[indices]["ID"].tolist()
+    base_ids = [x.split("_w")[0] for x in selected_ids]
+    assert len(set(base_ids)) == 5
+    
+    # Assert deterministic selections with random_state=42
+    indices_2 = get_single_window_indices(df, random_state=42)
+    assert np.array_equal(indices, indices_2)
