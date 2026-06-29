@@ -56,7 +56,7 @@ graph TD
 * **LightGBM:** Leaf-wise histogram splits with `colsample_bytree = 0.5205` (~76 features observed per split).
 * **XGBoost:** Depth-wise greedy tree growth (`train_xgb.py`, version 3.2.0) trained on the 146 invariant features.
 * **CatBoost:** Symmetric oblivious trees (`train_catboost.py`, version 1.2.10) offering structural orthogonality.
-* **Triad Blending (`blend_ensemble.py`):** Equal 1/3 probability blending across all three model families, achieving OOF AUC of **0.9964** and pushing leaderboard performance to **0.8631**.
+* **Triad Blending & Clean Contract (`blend_ensemble.py`):** Equal 1/3 probability blending across all three model families on pure calibrated test probabilities, applying prior shift correction exactly once on the blended matrix.
 
 ---
 
@@ -69,12 +69,12 @@ graph TD
 | Quantile Warping Bug | Independent ECDF transform on train/test | 0.9740 | 0.7981 | 0.8102 | 0.7902 | 643 / 1030 |
 | KS Pruned + Scale Fix | 83 invariant features, no quantile, colsample=0.90 | 0.9739 | 0.8412 | 0.8459 | 0.8380 | 643 / 1030 |
 | Trend Slopes (Sub 35) | 146 invariant features + trend slopes, LGBM single | 0.9812 | 0.8539 | 0.8719 | 0.8418 | 653 / 1030 |
-| **2-Way Ensemble (Sub 36)** | **50/50 LightGBM + XGBoost Ensemble on 146 features** | **0.9813** | **0.8631** | **0.8817** | **0.8507** | **678 / 1030** |
-| **Triad Ensemble (Sub 37)** | **1/3 LightGBM + XGBoost + CatBoost Triad Ensemble** | **0.9813** | *TBD* | *TBD* | *TBD* | **678 / 1030** |
+| 2-Way Ensemble (Sub 36) | 50/50 LightGBM + XGBoost Ensemble on 146 features | 0.9813 | 0.8631 | 0.8817 | 0.8507 | 678 / 1030 |
+| 3-Way Triad Bug (Sub 37) | Mixed prior correction contract on test | 0.9813 | 0.8626 | **0.8846** | 0.8479 | 678 / 1030 |
+| **Clean Triad (Sub 38)** | **Clean 1/3 Triad Ensemble (LGBM + XGB + CB) on 146 feat** | **0.9813** | *TBD* | *TBD* | *TBD* | **667 / 1030** |
 
 ---
 
 ## 4. Next Steps for Top Ranks (Target: LB 0.924+)
 
 1. **Seasonal Z-Score Pre-normalization:** Standardize monthly bands relative to annual population monthly means before computing window aggregations.
-2. **Optimal Ensemble Weighting:** Run bounded optimization on OOF predictions to find the precise probability weights for LightGBM, XGBoost, and CatBoost.

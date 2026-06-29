@@ -67,15 +67,8 @@ def correct_prior(probs: np.ndarray, train_prior: float, test_prior: float) -> n
 
 
 def main() -> None:
-    test_prior = 0.55
-    if "--test-prior" in sys.argv:
-        try:
-            idx = sys.argv.index("--test-prior") + 1
-            test_prior = float(sys.argv[idx])
-        except (ValueError, IndexError):
-            pass
-
     print("=== [XGBoost] Loading feature matrices ===")
+
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
     test_df  = pd.read_parquet(PROCESSED_DIR / "test_features.parquet")
 
@@ -160,7 +153,7 @@ def main() -> None:
     print("\n=== [XGBoost] Generating test predictions ===")
     raw_test_probs  = final_model.predict_proba(X_test)[:, 1]
     cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
-    cal_test_probs_corrected = correct_prior(cal_test_probs, y_train.mean(), test_prior)
+
 
     oof_df = pd.DataFrame({
         "ID": train_df_single["ID"].values,
@@ -173,9 +166,10 @@ def main() -> None:
     test_probs_df = pd.DataFrame({
         "ID": test_df["ID"].values,
         "xgb_prob_raw": raw_test_probs,
-        "xgb_prob_cal": cal_test_probs_corrected,
+        "xgb_prob_cal": cal_test_probs,
     })
     test_probs_df.to_csv(MODELS_DIR / "xgb_test_probs.csv", index=False)
+
 
     joblib.dump(final_model, MODELS_DIR / "xgb_model.joblib")
     joblib.dump(calibrator, MODELS_DIR / "xgb_calibrator.joblib")
