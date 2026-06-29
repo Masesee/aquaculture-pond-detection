@@ -42,15 +42,17 @@ def main() -> None:
     print("=== [Ensemble] Loading OOF predictions ===")
     lgbm_oof = pd.read_csv(MODELS_DIR / "oof_predictions.csv")
     xgb_oof  = pd.read_csv(MODELS_DIR / "xgb_oof_predictions.csv")
+    cb_oof   = pd.read_csv(MODELS_DIR / "cb_oof_predictions.csv")
 
-    assert len(lgbm_oof) == len(xgb_oof), "Mismatched OOF rows between models!"
+    assert len(lgbm_oof) == len(xgb_oof) == len(cb_oof), "Mismatched OOF rows between models!"
 
     labels = lgbm_oof["label"].values
     lgbm_probs = lgbm_oof["oof_prob_cal"].values
     xgb_probs  = xgb_oof["oof_prob_cal"].values
+    cb_probs   = cb_oof["oof_prob_cal"].values
 
-    # 50/50 blended OOF probabilities
-    blend_oof_probs = 0.5 * lgbm_probs + 0.5 * xgb_probs
+    # Equal 1/3 weighted triad ensemble OOF probabilities
+    blend_oof_probs = (lgbm_probs + xgb_probs + cb_probs) / 3.0
     blend_preds = (blend_oof_probs >= 0.5).astype(int)
 
     f1  = f1_score(labels, blend_preds)
@@ -59,7 +61,8 @@ def main() -> None:
 
     print(f"  LGBM  OOF — F1={f1_score(labels, (lgbm_probs>=0.5).astype(int)):.4f} | AUC={roc_auc_score(labels, lgbm_probs):.4f}")
     print(f"  XGB   OOF — F1={f1_score(labels, (xgb_probs>=0.5).astype(int)):.4f} | AUC={roc_auc_score(labels, xgb_probs):.4f}")
-    print(f"  BLEND OOF — F1={f1:.4f} | AUC={auc:.4f} | Score={score:.4f}")
+    print(f"  CB    OOF — F1={f1_score(labels, (cb_probs>=0.5).astype(int)):.4f} | AUC={roc_auc_score(labels, cb_probs):.4f}")
+    print(f"  TRIAD OOF — F1={f1:.4f} | AUC={auc:.4f} | Score={score:.4f}")
 
     # Save ensemble OOF summary
     ensemble_oof_df = pd.DataFrame({
@@ -67,6 +70,7 @@ def main() -> None:
         "label": labels,
         "lgbm_prob": lgbm_probs,
         "xgb_prob": xgb_probs,
+        "cb_prob": cb_probs,
         "blend_prob": blend_oof_probs,
     })
     ensemble_oof_df.to_csv(MODELS_DIR / "ensemble_oof_predictions.csv", index=False)
@@ -74,6 +78,7 @@ def main() -> None:
     print("\n=== [Ensemble] Building final blended test predictions ===")
     test_df = pd.read_parquet(PROCESSED_DIR / "test_features.parquet")
     xgb_test_df = pd.read_csv(MODELS_DIR / "xgb_test_probs.csv")
+    cb_test_df  = pd.read_csv(MODELS_DIR / "cb_test_probs.csv")
 
     # Load final models and calibrators for test inference
     lgbm_model = joblib.load(MODELS_DIR / "lgbm_model.joblib")
@@ -98,11 +103,12 @@ def main() -> None:
     raw_lgbm_test = lgbm_model.predict_proba(X_test)[:, 1]
     cal_lgbm_test = lgbm_cal.transform(raw_lgbm_test)
 
-    # XGB calibrated test probs (loaded from xgb_test_probs.csv or computed)
+    # XGB and CB calibrated test probs
     xgb_test_probs = xgb_test_df["xgb_prob_cal"].values
+    cb_test_probs  = cb_test_df["cb_prob_cal"].values
 
-    # Blend test probabilities
-    blend_test_probs = 0.5 * cal_lgbm_test + 0.5 * xgb_test_probs
+    # Blend test probabilities 1/3 each
+    blend_test_probs = (cal_lgbm_test + xgb_test_probs + cb_test_probs) / 3.0
     blend_test_corrected = correct_prior(blend_test_probs, train_prior, test_prior)
     binary_preds = (blend_test_corrected >= 0.5).astype(int)
 

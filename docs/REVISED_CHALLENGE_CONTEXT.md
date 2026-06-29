@@ -28,8 +28,10 @@ graph TD
     E --> F[Single-Window Stratified Group CV]
     F --> G1[LightGBM Classifier]
     F --> G2[XGBoost Classifier]
-    G1 --> H[50/50 Blended Ensemble & Prior Shift Correction]
+    F --> G3[CatBoost Classifier]
+    G1 --> H[1/3 Triad Blended Ensemble & Prior Shift Correction]
     G2 --> H
+    G3 --> H
     H --> I[Final Calibrated Submission]
 ```
 
@@ -50,10 +52,11 @@ graph TD
 * Features exhibiting severe distribution drift ($\text{KS} \ge 0.20$, such as raw shifted radar backscatter levels `SAR_diff_db__mean` and raw vegetation ranges) are systematically pruned.
 * Leaving **146 strictly domain-invariant features** in `invariant_features.txt`.
 
-### 2.5 Multi-Model Diverse Ensemble (LightGBM + XGBoost)
+### 2.5 Multi-Model Triad Ensemble (LightGBM + XGBoost + CatBoost)
 * **LightGBM:** Leaf-wise histogram splits with `colsample_bytree = 0.5205` (~76 features observed per split).
-* **XGBoost:** Depth-wise greedy tree growth (`train_xgb.py`, version 3.2.0) trained on the exact same 146 invariant features and CV splits.
-* **50/50 Probability Blending (`blend_ensemble.py`):** Combines calibrated predictions from both model families, boosting OOF AUC to **0.9964** and smoothing out boundary false positives.
+* **XGBoost:** Depth-wise greedy tree growth (`train_xgb.py`, version 3.2.0) trained on the 146 invariant features.
+* **CatBoost:** Symmetric oblivious trees (`train_catboost.py`, version 1.2.10) offering structural orthogonality.
+* **Triad Blending (`blend_ensemble.py`):** Equal 1/3 probability blending across all three model families, achieving OOF AUC of **0.9964** and pushing leaderboard performance to **0.8631**.
 
 ---
 
@@ -65,12 +68,13 @@ graph TD
 | Phase 2 Invariant | 84 robust features (pruned), high capacity | 0.9715 | 0.8316 | 0.8277 | 0.8342 | 637 / 1030 |
 | Quantile Warping Bug | Independent ECDF transform on train/test | 0.9740 | 0.7981 | 0.8102 | 0.7902 | 643 / 1030 |
 | KS Pruned + Scale Fix | 83 invariant features, no quantile, colsample=0.90 | 0.9739 | 0.8412 | 0.8459 | 0.8380 | 643 / 1030 |
-| **Trend Slopes (Sub 35)** | **146 invariant features + trend slopes, LGBM single** | **0.9812** | **0.8539** | **0.8719** | **0.8418** | **653 / 1030** |
-| **Blended Ensemble (Sub 36)** | **50/50 LightGBM + XGBoost Ensemble on 146 features** | **0.9813** | *TBD* | *TBD* | *TBD* | **678 / 1030** |
+| Trend Slopes (Sub 35) | 146 invariant features + trend slopes, LGBM single | 0.9812 | 0.8539 | 0.8719 | 0.8418 | 653 / 1030 |
+| **2-Way Ensemble (Sub 36)** | **50/50 LightGBM + XGBoost Ensemble on 146 features** | **0.9813** | **0.8631** | **0.8817** | **0.8507** | **678 / 1030** |
+| **Triad Ensemble (Sub 37)** | **1/3 LightGBM + XGBoost + CatBoost Triad Ensemble** | **0.9813** | *TBD* | *TBD* | *TBD* | **678 / 1030** |
 
 ---
 
 ## 4. Next Steps for Top Ranks (Target: LB 0.924+)
 
 1. **Seasonal Z-Score Pre-normalization:** Standardize monthly bands relative to annual population monthly means before computing window aggregations.
-2. **CatBoost Integration:** Add symmetric obligation trees as a third ensemble component.
+2. **Optimal Ensemble Weighting:** Run bounded optimization on OOF predictions to find the precise probability weights for LightGBM, XGBoost, and CatBoost.

@@ -70,3 +70,6 @@ experiments/logs/
 .gemini/
 .claude/
 .agents/
+
+# ML Logs
+catboost_info/

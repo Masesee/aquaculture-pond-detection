@@ -11,3 +11,5 @@ optuna>=3.6
 pytest>=8.0
 pre-commit>=3.7
 pyarrow>=14.0.1
+xgboost>=3.0
+catboost>=1.2
