@@ -226,7 +226,35 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         dict_features[f"{target}__mean_consec_change"] = mean_change
         dict_features[f"{target}__monotone_fraction"]  = monotone
 
-    # 6. Vectorized Cross-index agreement
+    # 6. Vectorized Linear Trend Slopes
+    t_coords = np.arange(1, 13, dtype=float)
+    for target in CONSEC_CHANGE_TARGETS:
+        if target in INDEX_FN_MAP:
+            source_df = monthly_index_values[target]
+        else:
+            source_df = monthly_band_values[target]
+
+        Y = source_df.values
+        valid = ~np.isnan(Y)
+        counts = valid.sum(axis=1)
+
+        T_matrix = np.tile(t_coords, (n, 1))
+        T_valid = np.where(valid, T_matrix, 0.0)
+        Y_valid = np.where(valid, Y, 0.0)
+
+        mean_t = T_valid.sum(axis=1) / np.maximum(counts, 1)
+        mean_y = Y_valid.sum(axis=1) / np.maximum(counts, 1)
+
+        dt = np.where(valid, T_matrix - mean_t[:, None], 0.0)
+        dy = np.where(valid, Y - mean_y[:, None], 0.0)
+
+        num = (dt * dy).sum(axis=1)
+        den = (dt * dt).sum(axis=1)
+
+        slope = np.where((counts > 1) & (den > 1e-9), num / den, 0.0)
+        dict_features[f"{target}__trend_slope"] = np.nan_to_num(slope, 0.0)
+
+    # 7. Vectorized Cross-index agreement
     ndwi_df  = monthly_index_values["NDWI"]
     mndwi_df = monthly_index_values["MNDWI"]
     awei_df  = monthly_index_values["AWEInsh"]
@@ -242,7 +270,7 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     dict_features["water_index_agreement"] = row_agreement.fillna(0.0)
     dict_features["water_index_unanimous"] = row_unanimous.fillna(0.0)
 
-    # 7. ID passthrough and assembly
+    # 8. ID passthrough and assembly
     result_features = pd.DataFrame(dict_features, index=df.index)
     result = pd.concat([df[["ID"]].reset_index(drop=True),
                         result_features.reset_index(drop=True)], axis=1)
@@ -283,6 +311,9 @@ def feature_names(exclude_id: bool = True) -> list[str]:
     for target in CONSEC_CHANGE_TARGETS:
         for suffix in ["max_consec_change", "mean_consec_change", "monotone_fraction"]:
             cols.append(f"{target}__{suffix}")
+
+    for target in CONSEC_CHANGE_TARGETS:
+        cols.append(f"{target}__trend_slope")
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")
