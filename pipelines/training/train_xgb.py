@@ -48,7 +48,7 @@ XGB_PARAMS = {
     "max_depth": 6,
     "min_child_weight": 5,
     "subsample": 0.7,
-    "colsample_bytree": 0.5758,
+    "colsample_bytree": 0.5205,
     "reg_alpha": 0.183,
     "reg_lambda": 2.70,
     "eval_metric": "logloss",

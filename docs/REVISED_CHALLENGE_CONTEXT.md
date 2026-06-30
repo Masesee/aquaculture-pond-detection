@@ -70,11 +70,15 @@ graph TD
 | KS Pruned + Scale Fix | 83 invariant features, no quantile, colsample=0.90 | 0.9739 | 0.8412 | 0.8459 | 0.8380 | 643 / 1030 |
 | Trend Slopes (Sub 35) | 146 invariant features + trend slopes, LGBM single | 0.9812 | 0.8539 | 0.8719 | 0.8418 | 653 / 1030 |
 | 2-Way Ensemble (Sub 36) | 50/50 LightGBM + XGBoost Ensemble on 146 features | 0.9813 | 0.8631 | 0.8817 | 0.8507 | 678 / 1030 |
-| 3-Way Triad Bug (Sub 37) | Mixed prior correction contract on test | 0.9813 | 0.8626 | **0.8846** | 0.8479 | 678 / 1030 |
-| **Clean Triad (Sub 38)** | **Clean 1/3 Triad Ensemble (LGBM + XGB + CB) on 146 feat** | **0.9813** | *TBD* | *TBD* | *TBD* | **667 / 1030** |
+| 3-Way Triad Bug (Sub 37) | Mixed prior correction contract on test | 0.9813 | 0.8626 | 0.8846 | 0.8479 | 678 / 1030 |
+| **Clean Triad (Sub 38)** | **Clean 1/3 Triad Ensemble (LGBM + XGB + CB) on 146 feat** | **0.9813** | **0.8648** | **0.8850** | **0.8514** | **667 / 1030** |
+| Seasonal Norm Fail (Sub 39) | Z-score pre-normalization on monthly bands | 0.9824 | 0.8473 | 0.8586 | 0.8397 | 649 / 1030 |
 
 ---
 
-## 4. Next Steps for Top Ranks (Target: LB 0.924+)
+## 4. Design Experiments & Lessons Learned
 
-1. **Seasonal Z-Score Pre-normalization:** Standardize monthly bands relative to annual population monthly means before computing window aggregations.
+### 4.1 Monthly Z-score Standardization (Failed)
+* **Hypothesis:** Normalizing each month's values relative to the monthly population statistics would cancel out seasonal cycles and reduce distribution shift on partial-observation windows.
+* **Findings:** Standardizing using training population statistics *magnified* covariate shift on the test set. Because the test set is geolocated differently and has different raw monthly standard deviations, dividing by small monthly training standard deviations (e.g. spring/autumn transitions) inflated small test offsets by $6\times$, causing severe distribution drift.
+* **Action:** Reverted the feature pipeline to raw spectral values.
