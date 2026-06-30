@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from pipelines.features.indices import (
-    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio
+    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio,
+    ndwi2, sar_rvi, sabi, chlorophyll_index
 )
 
 MONTH = "01"
@@ -25,11 +26,14 @@ def sample_df() -> pd.DataFrame:
     rng = np.random.default_rng(0)
     n = 8
     data = {
+        f"blue_{MONTH}":   rng.integers(400,  1500, n).astype(float),
         f"green_{MONTH}":  rng.integers(800,  3000, n).astype(float),
         f"red_{MONTH}":    rng.integers(600,  2500, n).astype(float),
         f"nir_{MONTH}":    rng.integers(1000, 6000, n).astype(float),
         f"nira_{MONTH}":   rng.integers(1000, 6000, n).astype(float),
         f"re1_{MONTH}":    rng.integers(800,  4000, n).astype(float),
+        f"re2_{MONTH}":    rng.integers(900,  4200, n).astype(float),
+        f"re3_{MONTH}":    rng.integers(1000, 4500, n).astype(float),
         f"swir1_{MONTH}":  rng.integers(500,  4000, n).astype(float),
         f"swir2_{MONTH}":  rng.integers(300,  3000, n).astype(float),
         f"VH_{MONTH}":     rng.uniform(-28, -10, n),
@@ -47,11 +51,14 @@ def pure_water_df() -> pd.DataFrame:
     """
     n = 4
     return pd.DataFrame({
+        f"blue_{MONTH}":   [500.0]  * n,
         f"green_{MONTH}":  [3000.0] * n,
         f"red_{MONTH}":    [300.0]  * n,
         f"nir_{MONTH}":    [400.0]  * n,
         f"nira_{MONTH}":   [380.0]  * n,
         f"re1_{MONTH}":    [350.0]  * n,
+        f"re2_{MONTH}":    [320.0]  * n,
+        f"re3_{MONTH}":    [300.0]  * n,
         f"swir1_{MONTH}":  [200.0]  * n,
         f"swir2_{MONTH}":  [150.0]  * n,
         f"VH_{MONTH}":     [-25.0]  * n,
@@ -68,11 +75,14 @@ def pure_veg_df() -> pd.DataFrame:
     """
     n = 4
     return pd.DataFrame({
+        f"blue_{MONTH}":   [400.0]  * n,
         f"green_{MONTH}":  [1200.0] * n,
         f"red_{MONTH}":    [800.0]  * n,
         f"nir_{MONTH}":    [5000.0] * n,
         f"nira_{MONTH}":   [4800.0] * n,
         f"re1_{MONTH}":    [3000.0] * n,
+        f"re2_{MONTH}":    [3800.0] * n,
+        f"re3_{MONTH}":    [4200.0] * n,
         f"swir1_{MONTH}":  [1500.0] * n,
         f"swir2_{MONTH}":  [900.0]  * n,
         f"VH_{MONTH}":     [-14.0]  * n,
@@ -188,6 +198,9 @@ def test_awei_nsh_positive_for_water(pure_water_df):
 
 def test_no_nan_outputs(sample_df):
     """No index should produce NaN for valid inputs."""
-    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio]:
+    for fn in [
+        ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio,
+        ndwi2, sar_rvi, sabi, chlorophyll_index
+    ]:
         result = fn(sample_df, MONTH)
         assert not result.isna().any(), f"{fn.__name__} produced NaN values"

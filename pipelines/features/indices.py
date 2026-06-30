@@ -113,6 +113,50 @@ def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
     return vh - vv
 
 
+def ndwi2(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Normalized Difference Water Index 2 (Gao 1996).
+    (nir - swir1) / (nir + swir1)
+    """
+    n  = df[f"nir_{month}"].astype(float)
+    s1 = df[f"swir1_{month}"].astype(float)
+    return (n - s1) / (n + s1 + EPS)
+
+
+def sar_rvi(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Radar Vegetation Index from Sentinel-1 dual-pol VH/VV.
+    Formula: 4 * VH_lin / (VH_lin + VV_lin)
+    """
+    vh = df[f"VH_{month}"].astype(float)
+    vv = df[f"VV_{month}"].astype(float)
+    vh_lin = 10.0 ** (vh / 10.0)
+    vv_lin = 10.0 ** (vv / 10.0)
+    return 4.0 * vh_lin / (vh_lin + vv_lin + EPS)
+
+
+def sabi(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Surface Algal Bloom Index.
+    (nir - red) / (blue + green)
+    """
+    n = df[f"nir_{month}"].astype(float)
+    r = df[f"red_{month}"].astype(float)
+    b = df[f"blue_{month}"].astype(float)
+    g = df[f"green_{month}"].astype(float)
+    return (n - r) / (b + g + EPS)
+
+
+def chlorophyll_index(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Red-Edge Chlorophyll Index.
+    re3 / re2 - 1
+    """
+    r3 = df[f"re3_{month}"].astype(float)
+    r2 = df[f"re2_{month}"].astype(float)
+    return r3 / (r2 + EPS) - 1.0
+
+
 # ── Index registry ─────────────────────────────────────────────────────────────
 # Maps index name → function. Consumed by aggregations.py.
 
@@ -125,4 +169,8 @@ INDEX_FN_MAP: dict[str, callable] = {
     "SAR_diff_db":  sar_diff_db,
     "NDTI":         ndti,
     "re1_nir":      re1_nir_ratio,
+    "NDWI2":        ndwi2,
+    "SAR_RVI":      sar_rvi,
+    "SABI":         sabi,
+    "CI":           chlorophyll_index,
 }
