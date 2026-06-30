@@ -70,6 +70,48 @@ def augment_train_with_masks(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(augmented_dfs, ignore_index=True)
 
 
+def fit_seasonal_stats(df: pd.DataFrame) -> dict:
+    """
+    Computes monthly mean and std for all raw bands and computed spectral indices
+    using the raw training dataframe (where all months are unmasked).
+    """
+    from contracts.schema import MONTHS, ALL_BANDS, raw_col
+    from pipelines.features.indices import INDEX_FN_MAP
+
+    stats = {}
+    
+    # Precompute indices for each month across all rows
+    monthly_indices = {}
+    for idx_name, fn in INDEX_FN_MAP.items():
+        cols = {}
+        for m in MONTHS:
+            cols[m] = fn(df, m)
+        monthly_indices[idx_name] = pd.DataFrame(cols, index=df.index)
+
+    # Stats for raw bands
+    for band in ALL_BANDS:
+        stats[band] = {}
+        for m in MONTHS:
+            col = raw_col(band, m)
+            vals = df[col].dropna()
+            stats[band][m] = {
+                "mean": float(vals.mean()),
+                "std": float(vals.std(ddof=1)) if len(vals) > 1 else 1.0
+            }
+
+    # Stats for spectral indices
+    for idx_name in INDEX_FN_MAP:
+        stats[idx_name] = {}
+        for m in MONTHS:
+            vals = monthly_indices[idx_name][m].dropna()
+            stats[idx_name][m] = {
+                "mean": float(vals.mean()),
+                "std": float(vals.std(ddof=1)) if len(vals) > 1 else 1.0
+            }
+
+    return stats
+
+
 def main() -> None:
     print("=== Loading raw data ===")
     train = pd.read_csv(TRAIN_PATH)
@@ -84,6 +126,16 @@ def main() -> None:
     train = train.replace(-9999, np.nan).replace(-9999.0, np.nan)
     test  = test.replace(-9999, np.nan).replace(-9999.0, np.nan)
 
+    # Fit seasonal stats on raw train set
+    print("\n=== Fitting monthly population stats for seasonal standardization ===")
+    seasonal_stats = fit_seasonal_stats(train)
+    
+    # Save seasonal stats
+    stats_json_path = FEATURES_DIR / "seasonal_stats.json"
+    with open(stats_json_path, "w") as f:
+        json.dump(seasonal_stats, f, indent=2)
+    print(f"  Saved: {stats_json_path}")
+
     # Perform mask augmentation on training data
     print("\n=== Performing training data mask augmentation (24 windows per sample) ===")
     train_augmented = augment_train_with_masks(train)
@@ -91,8 +143,8 @@ def main() -> None:
 
     # ── Build feature matrices ──
     print("\n=== Building feature matrices ===")
-    train_feats = build_feature_matrix(train_augmented)
-    test_feats  = build_feature_matrix(test)
+    train_feats = build_feature_matrix(train_augmented, seasonal_stats)
+    test_feats  = build_feature_matrix(test, seasonal_stats)
 
     def apply_shap_filter(
         train_feats: pd.DataFrame,

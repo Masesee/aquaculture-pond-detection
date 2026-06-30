@@ -106,7 +106,7 @@ CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
 
 # ── Main feature builder ───────────────────────────────────────────────────────
 
-def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+def build_feature_matrix(df: pd.DataFrame, seasonal_stats: dict | None = None) -> pd.DataFrame:
     """
     Transforms a raw dataframe (train or test) into a flat feature matrix.
     Vectorized implementation for maximum speed.
@@ -131,6 +131,27 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         cols = [raw_col(band, m) for m in MONTHS]
         monthly_band_values[band] = df[cols].rename(columns={raw_col(band, m): m for m in MONTHS}).astype(float)
 
+    # 1b. Standardize monthly values if seasonal_stats are provided
+    monthly_index_values_norm = {}
+    for index_name in INDEX_FN_MAP:
+        df_norm = monthly_index_values[index_name].copy()
+        if seasonal_stats and index_name in seasonal_stats:
+            for m in MONTHS:
+                mean = seasonal_stats[index_name][m]["mean"]
+                std = seasonal_stats[index_name][m]["std"]
+                df_norm[m] = (df_norm[m] - mean) / std
+        monthly_index_values_norm[index_name] = df_norm
+
+    monthly_band_values_norm = {}
+    for band in ALL_BANDS:
+        df_norm = monthly_band_values[band].copy()
+        if seasonal_stats and band in seasonal_stats:
+            for m in MONTHS:
+                mean = seasonal_stats[band][m]["mean"]
+                std = seasonal_stats[band][m]["std"]
+                df_norm[m] = (df_norm[m] - mean) / std
+        monthly_band_values_norm[band] = df_norm
+
     # 2. Compute window metadata features
     mask = ~monthly_band_values[ALL_BANDS[0]].isna()  # shape (n, 12)
     has_valid = mask.any(axis=1).values
@@ -151,10 +172,15 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     dict_features["window_center_cos"] = np.cos(2 * np.pi * w_center / 12.0)
 
     # 3. Vectorized aggregations helper
-    def add_aggregations(feats_dict: dict, source_df: pd.DataFrame, prefix: str):
+    def add_aggregations(feats_dict: dict, source_df: pd.DataFrame, source_df_unnorm: pd.DataFrame, prefix: str):
         mean = source_df.mean(axis=1)
         std  = source_df.std(axis=1, ddof=1).fillna(0.0)
-        cv   = std / (mean.abs() + 1e-9)
+        
+        # Compute CV on unnormalized values to prevent division by near-zero standardized means
+        mean_unnorm = source_df_unnorm.mean(axis=1)
+        std_unnorm  = source_df_unnorm.std(axis=1, ddof=1).fillna(0.0)
+        cv          = std_unnorm / (mean_unnorm.abs() + 1e-9)
+        
         min_val = source_df.min(axis=1)
         max_val = source_df.max(axis=1)
 
@@ -170,11 +196,11 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
     # Aggregations for raw bands
     for band in ALL_BANDS:
-        add_aggregations(dict_features, monthly_band_values[band], band)
+        add_aggregations(dict_features, monthly_band_values_norm[band], monthly_band_values[band], band)
 
     # Aggregations for spectral indices
     for index_name in INDEX_FN_MAP:
-        add_aggregations(dict_features, monthly_index_values[index_name], index_name)
+        add_aggregations(dict_features, monthly_index_values_norm[index_name], monthly_index_values[index_name], index_name)
 
     # 4. Vectorized Persistence fractions
     for feat_name, (index_name, operator, threshold) in PERSISTENCE_RULES.items():
@@ -197,9 +223,9 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     # 5. Vectorized Consecutive-month changes
     for target in CONSEC_CHANGE_TARGETS:
         if target in INDEX_FN_MAP:
-            source_df = monthly_index_values[target]
+            source_df = monthly_index_values_norm[target]
         else:
-            source_df = monthly_band_values[target]
+            source_df = monthly_band_values_norm[target]
 
         arr = source_df.values
         nan_mask = np.isnan(arr)
@@ -230,9 +256,9 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     t_coords = np.arange(1, 13, dtype=float)
     for target in CONSEC_CHANGE_TARGETS:
         if target in INDEX_FN_MAP:
-            source_df = monthly_index_values[target]
+            source_df = monthly_index_values_norm[target]
         else:
-            source_df = monthly_band_values[target]
+            source_df = monthly_band_values_norm[target]
 
         Y = source_df.values
         valid = ~np.isnan(Y)
