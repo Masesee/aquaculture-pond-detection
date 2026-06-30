@@ -74,13 +74,21 @@ def main() -> None:
     else:
         feature_cols = [c for c in train_df.columns if c not in ["ID", TARGET_COL]]
 
+    exclude_metadata = "--exclude-metadata" in sys.argv
     metadata_cols = [
         "window_start", "window_length", "window_center",
         "window_start_sin", "window_start_cos",
         "window_center_sin", "window_center_cos"
     ]
-    feature_cols = [c for c in feature_cols if c not in metadata_cols]
-    print(f"  Excluded window metadata. Remaining: {len(feature_cols)}")
+    if exclude_metadata:
+        feature_cols = [c for c in feature_cols if c not in metadata_cols]
+        print(f"  Excluded window metadata. Remaining: {len(feature_cols)}")
+    else:
+        for col in metadata_cols:
+            if col not in feature_cols and col in train_df.columns:
+                feature_cols.append(col)
+        print(f"  Included window metadata. Total features: {len(feature_cols)}")
+
 
     X_train = train_df[feature_cols]
     y_train = train_df[TARGET_COL].values

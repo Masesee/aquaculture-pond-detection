@@ -88,12 +88,19 @@ def main() -> None:
     with open(invariant_path) as f:
         feature_cols = [line.strip() for line in f if line.strip()]
 
+    exclude_metadata = "--exclude-metadata" in sys.argv
     metadata_cols = [
         "window_start", "window_length", "window_center",
         "window_start_sin", "window_start_cos",
         "window_center_sin", "window_center_cos"
     ]
-    feature_cols = [c for c in feature_cols if c not in metadata_cols]
+    if exclude_metadata:
+        feature_cols = [c for c in feature_cols if c not in metadata_cols]
+    else:
+        for col in metadata_cols:
+            if col not in feature_cols and col in test_df.columns:
+                feature_cols.append(col)
+
 
     X_test = test_df[feature_cols]
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")

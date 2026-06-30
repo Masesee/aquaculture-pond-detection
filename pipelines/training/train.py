@@ -143,15 +143,21 @@ def main() -> None:
         print(f"  Using all {len(feature_cols)} features (no invariant_features.txt found)")
 
     # ── Optional: Exclude window metadata features ────────────────────────────
-    exclude_metadata = "--no-exclude-metadata" not in sys.argv
+    exclude_metadata = "--exclude-metadata" in sys.argv
+    metadata_cols = [
+        "window_start", "window_length", "window_center",
+        "window_start_sin", "window_start_cos",
+        "window_center_sin", "window_center_cos"
+    ]
     if exclude_metadata:
-        metadata_cols = [
-            "window_start", "window_length", "window_center",
-            "window_start_sin", "window_start_cos",
-            "window_center_sin", "window_center_cos"
-        ]
         feature_cols = [c for c in feature_cols if c not in metadata_cols]
         print(f"  Excluded window metadata features. Remaining: {len(feature_cols)}")
+    else:
+        for col in metadata_cols:
+            if col not in feature_cols and col in train_df.columns:
+                feature_cols.append(col)
+        print(f"  Included window metadata features. Total features: {len(feature_cols)}")
+
 
     # ── Optional: Quantile Transformation ──────────────────────────────────────
     use_quantile = "--no-quantile" not in sys.argv

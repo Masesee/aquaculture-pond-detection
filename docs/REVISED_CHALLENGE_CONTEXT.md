@@ -53,8 +53,8 @@ graph TD
 * Leaving **146 strictly domain-invariant features** in `invariant_features.txt`.
 
 ### 2.5 Multi-Model Triad Ensemble (LightGBM + XGBoost + CatBoost)
-* **LightGBM:** Leaf-wise histogram splits with `colsample_bytree = 0.5205` (~76 features observed per split).
-* **XGBoost:** Depth-wise greedy tree growth (`train_xgb.py`, version 3.2.0) trained on the 146 invariant features.
+* **LightGBM:** Leaf-wise histogram splits with `colsample_bytree = 0.4967` (~76 features observed per split).
+* **XGBoost:** Depth-wise greedy tree growth (`train_xgb.py`, version 3.2.0) trained on the 146 invariant features + 7 window metadata columns.
 * **CatBoost:** Symmetric oblivious trees (`train_catboost.py`, version 1.2.10) offering structural orthogonality.
 * **Triad Blending & Clean Contract (`blend_ensemble.py`):** Equal 1/3 probability blending across all three model families on pure calibrated test probabilities, applying prior shift correction exactly once on the blended matrix.
 
@@ -73,6 +73,7 @@ graph TD
 | 3-Way Triad Bug (Sub 37) | Mixed prior correction contract on test | 0.9813 | 0.8626 | 0.8846 | 0.8479 | 678 / 1030 |
 | **Clean Triad (Sub 38)** | **Clean 1/3 Triad Ensemble (LGBM + XGB + CB) on 146 feat** | **0.9813** | **0.8648** | **0.8850** | **0.8514** | **667 / 1030** |
 | Seasonal Norm Fail (Sub 39) | Z-score pre-normalization on monthly bands | 0.9824 | 0.8473 | 0.8586 | 0.8397 | 649 / 1030 |
+| **Window Metadata (Sub 40)** | **146 raw features + 7 window metadata features (Triad)** | **0.9831** | *TBD* | *TBD* | *TBD* | **668 / 1030** |
 
 ---
 
