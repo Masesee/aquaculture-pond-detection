@@ -32,7 +32,9 @@ from pipelines.training.calibration import (
 
 PROCESSED_DIR  = ROOT / "data" / "processed"
 MODELS_DIR     = ROOT / "outputs" / "models"
+SUBMISSIONS_DIR = ROOT / "outputs" / "submissions"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_SPLITS = 5
 RANDOM_STATE = 42
@@ -97,6 +99,26 @@ def main() -> None:
     single_win_indices = get_single_window_indices(train_df, random_state=42)
     train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
 
+    # ── Optional pseudo-labeling ───────────────────────────────────────────
+    use_pseudo = "--pseudo" in sys.argv
+    if use_pseudo:
+        from pipelines.training.train import load_pseudo_labels
+        sub_path = SUBMISSIONS_DIR / "blend_submission_best.csv"
+        if not sub_path.exists():
+            sub_path = SUBMISSIONS_DIR / "submission.csv"
+        if not sub_path.exists():
+            print(f"\nERROR: Pseudo-labeling requires a source submission at: {sub_path}")
+            return
+        print("\n=== [CatBoost] Loading pseudo-labels ===")
+        pseudo_df, n_pseudo = load_pseudo_labels(
+            submission_path    = sub_path,
+            test_features_path = PROCESSED_DIR   / "test_features.parquet",
+        )
+        train_augmented = pd.concat([train_df, pseudo_df], ignore_index=True)
+        print(f"  Training size: {len(train_df)} -> {len(train_augmented)} (+{n_pseudo} pseudo-labeled)")
+    else:
+        train_augmented = train_df
+
     print(f"\n=== [CatBoost] {N_SPLITS}-fold stratified group CV (on 1-window subset) ===")
     splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
 
@@ -110,9 +132,16 @@ def main() -> None:
         X_val = train_df.iloc[val_idx_in_train_df][feature_cols]
         y_val = train_df.iloc[val_idx_in_train_df][TARGET_COL].values
 
-        train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
-        X_tr = train_df.loc[train_mask, feature_cols]
-        y_tr = train_df.loc[train_mask, TARGET_COL].values
+        if use_pseudo:
+            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+            pseudo_mask = np.ones(len(pseudo_df), dtype=bool)
+            full_train_mask = np.concatenate([train_mask, pseudo_mask])
+            X_tr = train_augmented.loc[full_train_mask, feature_cols]
+            y_tr = train_augmented.loc[full_train_mask, TARGET_COL].values
+        else:
+            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+            X_tr = train_df.loc[train_mask, feature_cols]
+            y_tr = train_df.loc[train_mask, TARGET_COL].values
 
         model = cb.CatBoostClassifier(**CAT_PARAMS)
         model.fit(
@@ -151,7 +180,10 @@ def main() -> None:
 
     print("\n=== [CatBoost] Training final model on full training data ===")
     final_model = cb.CatBoostClassifier(**CAT_PARAMS)
-    final_model.fit(X_train, y_train)
+    if use_pseudo:
+        final_model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
+    else:
+        final_model.fit(X_train, y_train)
 
     print("\n=== [CatBoost] Generating test predictions ===")
     raw_test_probs  = final_model.predict_proba(X_test)[:, 1]

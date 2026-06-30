@@ -225,7 +225,9 @@ def main() -> None:
     use_pseudo = "--pseudo" in sys.argv
 
     if use_pseudo:
-        sub_path = SUBMISSIONS_DIR / "submission.csv"
+        sub_path = SUBMISSIONS_DIR / "blend_submission_best.csv"
+        if not sub_path.exists():
+            sub_path = SUBMISSIONS_DIR / "submission.csv"
         if not sub_path.exists():
             print(f"\nERROR: Pseudo-labeling requires a source submission at: {sub_path}")
             print("Please run the pipeline once WITHOUT the --pseudo flag first.")
@@ -237,7 +239,7 @@ def main() -> None:
             test_features_path = PROCESSED_DIR   / "test_features.parquet",
         )
         train_augmented = pd.concat([train_df, pseudo_df], ignore_index=True)
-        print(f"  Training size: {len(train_df)} → {len(train_augmented)} (+{n_pseudo} pseudo-labeled)")
+        print(f"  Training size: {len(train_df)} -> {len(train_augmented)} (+{n_pseudo} pseudo-labeled)")
     else:
         train_augmented = train_df
 

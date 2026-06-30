@@ -73,7 +73,8 @@ graph TD
 | 3-Way Triad Bug (Sub 37) | Mixed prior correction contract on test | 0.9813 | 0.8626 | 0.8846 | 0.8479 | 678 / 1030 |
 | **Clean Triad (Sub 38)** | **Clean 1/3 Triad Ensemble (LGBM + XGB + CB) on 146 feat** | **0.9813** | **0.8648** | **0.8850** | **0.8514** | **667 / 1030** |
 | Seasonal Norm Fail (Sub 39) | Z-score pre-normalization on monthly bands | 0.9824 | 0.8473 | 0.8586 | 0.8397 | 649 / 1030 |
-| **Window Metadata (Sub 40)** | **146 raw features + 7 window metadata features (Triad)** | **0.9831** | *TBD* | *TBD* | *TBD* | **668 / 1030** |
+| **Window Metadata (Sub 40)** | **146 raw features + 7 window metadata features (Triad)** | **0.9831** | **0.8665** | **0.8871** | **0.8529** | **668 / 1030** |
+| **Pseudo-Labeled Triad (Sub 41)** | **Triad Ensemble with 777 pseudo-labeled test samples** | **0.9823** | *TBD* | *TBD* | *TBD* | **677 / 1030** |
 
 ---
 
