@@ -32,10 +32,6 @@ SPECTRAL_INDICES = [
     "NDVI",    # (nir   - red)   / (nir   + red)
     "NDRE",    # (nira  - re1)   / (nira  + re1)
     "AWEInsh", # 4*(green-swir1) - (0.25*nir + 2.75*swir2)
-    "NDWI2",   # (nir - swir1) / (nir + swir1)
-    "SAR_RVI",  # 4 * VH_lin / (VH_lin + VV_lin)
-    "SABI",    # (nir - red) / (blue + green)
-    "CI",      # re3 / re2 - 1
     "SAR_ratio",  # VH / VV
     "SAR_diff",   # VH - VV
 ]

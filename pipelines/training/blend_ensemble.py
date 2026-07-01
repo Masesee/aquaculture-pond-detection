@@ -73,7 +73,7 @@ def main() -> None:
     gru_oof_probs_aligned = np.zeros_like(blend_oof_probs)
     gru_test_probs_aligned = np.zeros(1030) # test size
     
-    if gru_path.exists() and gru_test_path.exists():
+    if "--use-gru" in sys.argv and gru_path.exists() and gru_test_path.exists():
         gru_oof = pd.read_csv(gru_path)
         gru_test = pd.read_csv(gru_test_path)
         

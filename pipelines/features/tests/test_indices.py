@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from pipelines.features.indices import (
-    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio,
-    ndwi2, sar_rvi, sabi, chlorophyll_index
+    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio
 )
 
 MONTH = "01"
@@ -198,9 +197,6 @@ def test_awei_nsh_positive_for_water(pure_water_df):
 
 def test_no_nan_outputs(sample_df):
     """No index should produce NaN for valid inputs."""
-    for fn in [
-        ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio,
-        ndwi2, sar_rvi, sabi, chlorophyll_index
-    ]:
+    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio]:
         result = fn(sample_df, MONTH)
         assert not result.isna().any(), f"{fn.__name__} produced NaN values"
