@@ -178,15 +178,22 @@ def main() -> None:
     cal_score     = combined_score(cal_f1, cal_auc)
     print(f"  [CatBoost] Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
-    print("\n=== [CatBoost] Training final model on full training data ===")
-    final_model = cb.CatBoostClassifier(**CAT_PARAMS)
-    if use_pseudo:
-        final_model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
-    else:
-        final_model.fit(X_train, y_train)
-
-    print("\n=== [CatBoost] Generating test predictions ===")
-    raw_test_probs  = final_model.predict_proba(X_test)[:, 1]
+    print("\n=== [CatBoost] Training final model on full training data (Seed Averaging across [42, 100, 2026]) ===")
+    seeds = [42, 100, 2026]
+    raw_test_probs_list = []
+    
+    for seed in seeds:
+        seed_params = {**CAT_PARAMS, "random_seed": seed}
+        model = cb.CatBoostClassifier(**seed_params)
+        if use_pseudo:
+            model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
+        else:
+            model.fit(X_train, y_train)
+        raw_test_probs_list.append(model.predict_proba(X_test)[:, 1])
+        if seed == 42:
+            joblib.dump(model, MODELS_DIR / "cb_model.joblib")
+            
+    raw_test_probs = np.mean(raw_test_probs_list, axis=0)
     cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
 
 
@@ -206,9 +213,8 @@ def main() -> None:
     test_probs_df.to_csv(MODELS_DIR / "cb_test_probs.csv", index=False)
 
 
-    joblib.dump(final_model, MODELS_DIR / "cb_model.joblib")
     joblib.dump(calibrator, MODELS_DIR / "cb_calibrator.joblib")
-    print("  Saved: outputs/models/cb_model.joblib")
+    print("  Saved: outputs/models/cb_model.joblib (seed 42)")
     print("  Saved: outputs/models/cb_oof_predictions.csv")
     print("  Saved: outputs/models/cb_test_probs.csv")
 

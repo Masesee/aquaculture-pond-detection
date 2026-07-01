@@ -349,16 +349,34 @@ def main() -> None:
         print(f"  CV best_iter mean={np.mean(best_iters):.0f} → final n_estimators={final_n_estimators}")
 
     final_params = {**active_params, "n_estimators": final_n_estimators}
-    final_model = lgb.LGBMClassifier(**{
-        k: v for k, v in final_params.items()
-        if k not in ["metric"]
-    })
-    final_model.fit(X_train, y_train)
 
-    # ── Generate test predictions ─────────────────────────────────────────────
-    print("\n=== Generating test predictions ===")
-    raw_test_probs  = final_model.predict_proba(X_test)[:, 1]
+    # Fit final models on multiple seeds and average predictions
+    seeds = [42, 100, 2026]
+    raw_test_probs_list = []
+    
+    print(f"\n=== Training final model on full training data (Seed Averaging across {seeds}) ===")
+    for seed in seeds:
+        seed_params = {**final_params, "random_state": seed}
+        model = lgb.LGBMClassifier(**{
+            k: v for k, v in seed_params.items()
+            if k not in ["metric"]
+        })
+        model.fit(X_train, y_train)
+        raw_test_probs_list.append(model.predict_proba(X_test)[:, 1])
+        if seed == 42:
+            joblib.dump(model, MODELS_DIR / "lgbm_model.joblib")
+            
+    raw_test_probs = np.mean(raw_test_probs_list, axis=0)
     cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
+
+    # Save LightGBM test probabilities to CSV
+    lgbm_test_df = pd.DataFrame({
+        "ID": test_df["ID"],
+        "lgbm_prob_raw": raw_test_probs,
+        "lgbm_prob_cal": cal_test_probs,
+    })
+    lgbm_test_df.to_csv(MODELS_DIR / "lgbm_test_probs.csv", index=False)
+    print("  Saved: outputs/models/lgbm_test_probs.csv")
 
     # Prior shift correction for final submission
     train_prior = y_train.mean()
@@ -379,7 +397,6 @@ def main() -> None:
     oof_df.to_csv(MODELS_DIR / "oof_predictions.csv", index=False)
 
     # ── Save models ───────────────────────────────────────────────────────────
-    joblib.dump(final_model, MODELS_DIR / "lgbm_model.joblib")
     save_calibrator(calibrator, MODELS_DIR / "calibrator.joblib")
     print("  Saved: outputs/models/lgbm_model.joblib")
     print("  Saved: outputs/models/calibrator.joblib")

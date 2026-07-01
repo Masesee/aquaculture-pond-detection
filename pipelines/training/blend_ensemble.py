@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 import pandas as pd
-import joblib
 from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL
@@ -120,40 +119,15 @@ def main() -> None:
 
     print("\n=== [Ensemble] Building final blended test predictions ===")
     test_df = pd.read_parquet(PROCESSED_DIR / "test_features.parquet")
+    lgbm_test_df = pd.read_csv(MODELS_DIR / "lgbm_test_probs.csv")
     xgb_test_df = pd.read_csv(MODELS_DIR / "xgb_test_probs.csv")
     cb_test_df  = pd.read_csv(MODELS_DIR / "cb_test_probs.csv")
 
-    # Load final models and calibrators for test inference
-    lgbm_model = joblib.load(MODELS_DIR / "lgbm_model.joblib")
-    lgbm_cal   = joblib.load(MODELS_DIR / "calibrator.joblib")
-    
-    invariant_path = ROOT / "outputs" / "features" / "invariant_features.txt"
-    with open(invariant_path) as f:
-        feature_cols = [line.strip() for line in f if line.strip()]
-
-    exclude_metadata = "--exclude-metadata" in sys.argv
-    metadata_cols = [
-        "window_start", "window_length", "window_center",
-        "window_start_sin", "window_start_cos",
-        "window_center_sin", "window_center_cos"
-    ]
-    if exclude_metadata:
-        feature_cols = [c for c in feature_cols if c not in metadata_cols]
-    else:
-        for col in metadata_cols:
-            if col not in feature_cols and col in test_df.columns:
-                feature_cols.append(col)
-
-
-    X_test = test_df[feature_cols]
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
     train_prior = train_df[TARGET_COL].mean()
 
-    # LGBM calibrated test probs
-    raw_lgbm_test = lgbm_model.predict_proba(X_test)[:, 1]
-    cal_lgbm_test = lgbm_cal.transform(raw_lgbm_test)
-
-    # XGB and CB calibrated test probs
+    # Model calibrated test probs
+    cal_lgbm_test = lgbm_test_df["lgbm_prob_cal"].values
     xgb_test_probs = xgb_test_df["xgb_prob_cal"].values
     cb_test_probs  = cb_test_df["cb_prob_cal"].values
 

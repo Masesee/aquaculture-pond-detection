@@ -191,15 +191,22 @@ def main() -> None:
     cal_score     = combined_score(cal_f1, cal_auc)
     print(f"  [XGBoost] Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
-    print("\n=== [XGBoost] Training final model on full training data ===")
-    final_model = xgb.XGBClassifier(**active_params)
-    if use_pseudo:
-        final_model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
-    else:
-        final_model.fit(X_train, y_train)
-
-    print("\n=== [XGBoost] Generating test predictions ===")
-    raw_test_probs  = final_model.predict_proba(X_test)[:, 1]
+    print("\n=== [XGBoost] Training final model on full training data (Seed Averaging across [42, 100, 2026]) ===")
+    seeds = [42, 100, 2026]
+    raw_test_probs_list = []
+    
+    for seed in seeds:
+        seed_params = {**active_params, "random_state": seed}
+        model = xgb.XGBClassifier(**seed_params)
+        if use_pseudo:
+            model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
+        else:
+            model.fit(X_train, y_train)
+        raw_test_probs_list.append(model.predict_proba(X_test)[:, 1])
+        if seed == 42:
+            joblib.dump(model, MODELS_DIR / "xgb_model.joblib")
+            
+    raw_test_probs = np.mean(raw_test_probs_list, axis=0)
     cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
 
 
@@ -219,9 +226,8 @@ def main() -> None:
     test_probs_df.to_csv(MODELS_DIR / "xgb_test_probs.csv", index=False)
 
 
-    joblib.dump(final_model, MODELS_DIR / "xgb_model.joblib")
     joblib.dump(calibrator, MODELS_DIR / "xgb_calibrator.joblib")
-    print("  Saved: outputs/models/xgb_model.joblib")
+    print("  Saved: outputs/models/xgb_model.joblib (seed 42)")
     print("  Saved: outputs/models/xgb_oof_predictions.csv")
     print("  Saved: outputs/models/xgb_test_probs.csv")
 
