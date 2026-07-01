@@ -9,6 +9,7 @@ Run with:
 """
 
 import sys
+import json
 import joblib
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def main() -> None:
 
     single_win_indices = get_single_window_indices(train_df, random_state=42)
     train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
+    y_train_single = train_df_single[TARGET_COL].values
 
     # ── Optional pseudo-labeling ───────────────────────────────────────────
     use_pseudo = "--pseudo" in sys.argv
@@ -123,6 +125,16 @@ def main() -> None:
     else:
         train_augmented = train_df
 
+    # Load tuned parameters if they exist
+    best_params_path = MODELS_DIR / "best_params_xgb.json"
+    if best_params_path.exists():
+        with open(best_params_path) as f:
+            _bp = json.load(f)
+        active_params = {**XGB_PARAMS, **_bp}
+        print("  Loaded tuned params from best_params_xgb.json")
+    else:
+        active_params = XGB_PARAMS
+
     print(f"\n=== [XGBoost] {N_SPLITS}-fold stratified group CV (on 1-window subset) ===")
     splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
 
@@ -130,11 +142,7 @@ def main() -> None:
     fold_scores = []
 
     for fold, (train_pos, val_pos) in enumerate(splits):
-        val_idx_in_train_df = single_win_indices[val_pos]
         val_base_ids = set(train_df_single.iloc[val_pos]["ID"].apply(lambda x: x.split("_w")[0]))
-
-        X_val = train_df.iloc[val_idx_in_train_df][feature_cols]
-        y_val = train_df.iloc[val_idx_in_train_df][TARGET_COL].values
 
         if use_pseudo:
             train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
@@ -147,7 +155,10 @@ def main() -> None:
             X_tr = train_df.loc[train_mask, feature_cols]
             y_tr = train_df.loc[train_mask, TARGET_COL].values
 
-        model = xgb.XGBClassifier(**XGB_PARAMS)
+        X_val = train_df_single[feature_cols].iloc[val_pos]
+        y_val = y_train_single[val_pos]
+
+        model = xgb.XGBClassifier(**active_params)
         model.fit(
             X_tr, y_tr,
             eval_set=[(X_val, y_val)],
@@ -165,7 +176,6 @@ def main() -> None:
         fold_scores.append({"fold": fold, "f1": round(fold_f1, 4), "auc": round(fold_auc, 4), "score": round(fold_score, 4)})
         print(f"  Fold {fold}: F1={fold_f1:.4f} | AUC={fold_auc:.4f} | Score={fold_score:.4f}")
 
-    y_train_single = train_df_single[TARGET_COL].values
     oof_preds = (oof_probs >= 0.5).astype(int)
     oof_f1    = f1_score(y_train_single, oof_preds)
     oof_auc   = roc_auc_score(y_train_single, oof_probs)
@@ -182,7 +192,7 @@ def main() -> None:
     print(f"  [XGBoost] Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
     print("\n=== [XGBoost] Training final model on full training data ===")
-    final_model = xgb.XGBClassifier(**XGB_PARAMS)
+    final_model = xgb.XGBClassifier(**active_params)
     if use_pseudo:
         final_model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)
     else:
