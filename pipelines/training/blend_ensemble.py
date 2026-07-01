@@ -64,6 +64,49 @@ def main() -> None:
     print(f"  CB    OOF — F1={f1_score(labels, (cb_probs>=0.5).astype(int)):.4f} | AUC={roc_auc_score(labels, cb_probs):.4f}")
     print(f"  TRIAD OOF — F1={f1:.4f} | AUC={auc:.4f} | Score={score:.4f}")
 
+    # Load GRU OOF predictions if available
+    gru_path = MODELS_DIR / "gru_oof_probs.csv"
+    gru_test_path = MODELS_DIR / "gru_test_probs.csv"
+    
+    import numpy as np
+    w_gru = 0.0
+    gru_oof_probs_aligned = np.zeros_like(blend_oof_probs)
+    gru_test_probs_aligned = np.zeros(1030) # test size
+    
+    if gru_path.exists() and gru_test_path.exists():
+        gru_oof = pd.read_csv(gru_path)
+        gru_test = pd.read_csv(gru_test_path)
+        
+        # Align GRU OOF by ID
+        gru_id_to_prob = dict(zip(gru_oof["ID"], gru_oof["gru_prob"]))
+        gru_oof_probs_aligned = np.array([gru_id_to_prob[idx] for idx in lgbm_oof["ID"]])
+        
+        print("  Loaded GRU model predictions. Optimizing blend weights...")
+        
+        best_w = 0.0
+        best_score = score
+        best_f1 = f1
+        best_auc = auc
+        
+        for w in np.linspace(0.0, 0.40, 41):
+            temp_blend = (1.0 - w) * blend_oof_probs + w * gru_oof_probs_aligned
+            temp_preds = (temp_blend >= 0.5).astype(int)
+            temp_f1 = f1_score(labels, temp_preds)
+            temp_auc = roc_auc_score(labels, temp_blend)
+            temp_score = combined_score(temp_f1, temp_auc)
+            if temp_score > best_score:
+                best_score = temp_score
+                best_w = w
+                best_f1 = temp_f1
+                best_auc = temp_auc
+                
+        w_gru = best_w
+        print(f"  Optimal GRU weight: {w_gru:.2f} (Triad weight: {1.0 - w_gru:.2f})")
+        print(f"  Blended OOF — F1={best_f1:.4f} | AUC={best_auc:.4f} | Score={best_score:.4f}")
+        
+        # Update OOF probabilities for saving
+        blend_oof_probs = (1.0 - w_gru) * blend_oof_probs + w_gru * gru_oof_probs_aligned
+
     # Save ensemble OOF summary
     ensemble_oof_df = pd.DataFrame({
         "ID": lgbm_oof["ID"],
@@ -114,8 +157,18 @@ def main() -> None:
     xgb_test_probs = xgb_test_df["xgb_prob_cal"].values
     cb_test_probs  = cb_test_df["cb_prob_cal"].values
 
-    # Blend test probabilities 1/3 each
-    blend_test_probs = (cal_lgbm_test + xgb_test_probs + cb_test_probs) / 3.0
+    # Blend test probabilities
+    triad_test_probs = (cal_lgbm_test + xgb_test_probs + cb_test_probs) / 3.0
+    
+    if w_gru > 0.0:
+        # Align GRU Test by ID
+        gru_test = pd.read_csv(gru_test_path)
+        gru_test_id_to_prob = dict(zip(gru_test["ID"], gru_test["gru_prob"]))
+        gru_test_probs_aligned = np.array([gru_test_id_to_prob[idx] for idx in test_df["ID"]])
+        blend_test_probs = (1.0 - w_gru) * triad_test_probs + w_gru * gru_test_probs_aligned
+    else:
+        blend_test_probs = triad_test_probs
+
     blend_test_corrected = correct_prior(blend_test_probs, train_prior, test_prior)
     binary_preds = (blend_test_corrected >= 0.5).astype(int)
 
