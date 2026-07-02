@@ -270,14 +270,6 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     dict_features["water_index_agreement"] = row_agreement.fillna(0.0)
     dict_features["water_index_unanimous"] = row_unanimous.fillna(0.0)
 
-    # 7.5. Physical Cross-Features
-    dict_features["max_water_vs_veg"] = (dict_features["MNDWI__max"] - dict_features["NDVI__max"]).fillna(0.0)
-    dict_features["water_veg_interaction"] = (dict_features["MNDWI__max"] * (1.0 - dict_features["NDVI__max"])).fillna(0.0)
-    dict_features["sar_dynamic_range"] = (dict_features["VV__range"] / (dict_features["VH__range"] + 1e-9)).fillna(0.0)
-    dict_features["persistence_water_veg"] = (dict_features["NDWI_pos_count"] * dict_features["NDVI_low_count"]).fillna(0.0)
-    dict_features["max_awei_vs_veg"] = (dict_features["AWEInsh__max"] - dict_features["NDVI__max"]).fillna(0.0)
-    dict_features["awei_veg_interaction"] = (dict_features["AWEInsh__max"] * (1.0 - dict_features["NDVI__max"])).fillna(0.0)
-
     # 8. ID passthrough and assembly
     result_features = pd.DataFrame(dict_features, index=df.index)
     result = pd.concat([df[["ID"]].reset_index(drop=True),
@@ -325,15 +317,6 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")
-
-    cols.extend([
-        "max_water_vs_veg",
-        "water_veg_interaction",
-        "sar_dynamic_range",
-        "persistence_water_veg",
-        "max_awei_vs_veg",
-        "awei_veg_interaction"
-    ])
 
     if not exclude_id:
         cols = ["ID"] + cols
