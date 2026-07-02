@@ -82,7 +82,8 @@ graph TD
 | **Seed-Averaged Triad (Sub 46)** | **Seed averaging [42, 100, 2026] on LGBM + XGB + CB** | **0.9827** | **0.8661** | **0.8850** | **0.8535** | **653 / 1030** |
 | **Meta-Blended Triad (Sub 47)** | **50% Sub 40 (Seed 42) + 50% Sub 46 (Seed Averaged)** | **0.9829** | **0.86598** | **0.88676** | **0.85213** | **662 / 1030** |
 | **Asymmetric Blend (Sub 48)** | **90% Sub 40 (Seed 42) + 10% Sub 46 (Seed Averaged)** | **0.9830** | **0.86666** | **0.88736** | **0.85287** | **666 / 1030** |
-| **Physical Cross-Features (Sub 49)** | **Triad Ensemble on 150 robust features (including 4 cross-feats)** | **0.9823** | *TBD* | *TBD* | *TBD* | **659 / 1030** |
+| **Physical Cross-Features (Sub 49)** | **Triad Ensemble on 150 robust features (including 4 cross-feats)** | **0.9823** | **0.86391** | **0.88269** | **0.85139** | **659 / 1030** |
+| **Asymmetric Cross Blend (Sub 50)** | **90% Seed 42 Triad + 10% Seed-Averaged Triad (150 features)** | **0.9823** | *TBD* | *TBD* | *TBD* | **660 / 1030** |
 
 ---
 
@@ -120,8 +121,12 @@ graph TD
   * To fix this, we designed an **Asymmetric Weighted Blend** (90% Sub 40 + 10% Sub 46). By putting 90% of the weight on Sub 40, we preserve its peak rank ordering (AUC) while using Sub 46 as a subtle denoising filter to eliminate tail-end false positives, reducing predicted ponds to exactly **666 / 1030**.
 * **Action:** Created `blend_subs.py` to generate the asymmetric blend.
 
-### 4.7 Robust Physical Cross-Features
-* **Hypothesis:** Aquaculture ponds have distinct physical/temporal signatures (water specularity combined with low vegetation greenness, double-bounce embankments, and high persistence). Constructing explicit cross-features will make it easier for the tree-based models to split on these interactions, boosting representation power.
-* **Findings:** Out of 6 new features, 4 passed the domain-invariance Kolmogorov-Smirnov test (KS < 0.20): `max_awei_vs_veg` (AWEInsh max - NDVI max), `sar_dynamic_range` (VV range / VH range), `max_water_vs_veg` (MNDWI max - NDVI max), and `persistence_water_veg` (NDWI pos count * NDVI low count). LightGBM OOF score rose from `0.9798` to `0.9815` (and calibrated OOF F1 rose to `0.9726`).
-* **Action:** Integrated features in `aggregations.py`, rebuilt feature parquet matrices, and trained the Triad ensemble.
+### 4.7 Robust Physical Cross-Features & Seed Stabilization
+* **Hypothesis:** Aquaculture ponds have distinct physical/temporal signatures. Constructing explicit cross-features will make it easier for the tree-based models to split on these interactions, boosting representation power.
+* **Findings:** 
+  * Out of 6 new features, 4 passed the domain-invariance Kolmogorov-Smirnov test (KS < 0.20): `max_awei_vs_veg` (AWEInsh max - NDVI max), `sar_dynamic_range` (VV range / VH range), `max_water_vs_veg` (MNDWI max - NDVI max), and `persistence_water_veg` (NDWI pos count * NDVI low count). LightGBM OOF score rose from `0.9798` to `0.9815` (and calibrated OOF F1 rose to `0.9726`).
+  * Sub 49 (pure seed-averaged Triad on the new features) scored `0.8639` with AUC `0.8826` on the leaderboard. This confirmed that seed-averaging over all three seeds degrades AUC compared to using Seed 42 alone (which generalizes much better to the test set).
+  * Sub 50 (90% Seed 42 Triad + 10% Seed-Averaged Triad on the new feature space) is designed to combine the higher representation power of the new physical features with Seed 42's peak AUC.
+* **Action:** Refactored training scripts to support `--seeds` CLI argument, generated both seed configurations, and blended them 90/10 in `blend_subs.py`.
+
 

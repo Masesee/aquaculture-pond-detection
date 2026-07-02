@@ -348,6 +348,12 @@ def main() -> None:
 
     # Fit final models on multiple seeds and average predictions
     seeds = [42, 100, 2026]
+    if "--seeds" in sys.argv:
+        try:
+            idx = sys.argv.index("--seeds") + 1
+            seeds = [int(x) for x in sys.argv[idx].split(",")]
+        except (ValueError, IndexError):
+            pass
     raw_test_probs_list = []
     
     print(f"\n=== Training final model on full training data (Seed Averaging across {seeds}) ===")

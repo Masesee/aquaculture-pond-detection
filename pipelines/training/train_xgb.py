@@ -187,8 +187,14 @@ def main() -> None:
     cal_score     = combined_score(cal_f1, cal_auc)
     print(f"  [XGBoost] Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
-    print("\n=== [XGBoost] Training final model on full training data (Seed Averaging across [42, 100, 2026]) ===")
     seeds = [42, 100, 2026]
+    if "--seeds" in sys.argv:
+        try:
+            idx = sys.argv.index("--seeds") + 1
+            seeds = [int(x) for x in sys.argv[idx].split(",")]
+        except (ValueError, IndexError):
+            pass
+    print(f"\n=== [XGBoost] Training final model on full training data (Seed Averaging across {seeds}) ===")
     raw_test_probs_list = []
     
     for seed in seeds:
