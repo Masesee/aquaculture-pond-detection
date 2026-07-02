@@ -20,7 +20,7 @@ import optuna
 import xgboost as xgb
 from sklearn.metrics import f1_score, roc_auc_score
 
-from contracts.schema import TARGET_COL
+from contracts.schema import TARGET_COL, WINDOW_METADATA_COLS
 from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices
 from pipelines.evaluation.metrics import combined_score
 
@@ -88,11 +88,7 @@ def main() -> None:
     with open(invariant_path) as f:
         feature_cols = [line.strip() for line in f if line.strip()]
         
-    metadata_cols = [
-        "window_start", "window_length", "window_center",
-        "window_start_sin", "window_start_cos",
-        "window_center_sin", "window_center_cos"
-    ]
+    metadata_cols = WINDOW_METADATA_COLS
     for col in metadata_cols:
         if col not in feature_cols and col in train_df.columns:
             feature_cols.append(col)

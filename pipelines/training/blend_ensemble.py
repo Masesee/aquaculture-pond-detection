@@ -38,6 +38,18 @@ def main() -> None:
         except (ValueError, IndexError):
             pass
 
+    weights = [1/3, 1/3, 1/3]
+    if "--weights" in sys.argv:
+        try:
+            idx = sys.argv.index("--weights") + 1
+            w_str = sys.argv[idx]
+            weights = [float(x) for x in w_str.split(",")]
+            w_sum = sum(weights)
+            weights = [w / w_sum for w in weights]
+        except (ValueError, IndexError):
+            pass
+    print(f"=== [Ensemble] Blending weights: LGBM={weights[0]:.3f}, XGB={weights[1]:.3f}, CB={weights[2]:.3f} ===")
+
     print("=== [Ensemble] Loading OOF predictions ===")
     lgbm_oof = pd.read_csv(MODELS_DIR / "oof_predictions.csv")
     xgb_oof  = pd.read_csv(MODELS_DIR / "xgb_oof_predictions.csv")
@@ -50,8 +62,8 @@ def main() -> None:
     xgb_probs  = xgb_oof["oof_prob_cal"].values
     cb_probs   = cb_oof["oof_prob_cal"].values
 
-    # Equal 1/3 weighted triad ensemble OOF probabilities
-    blend_oof_probs = (lgbm_probs + xgb_probs + cb_probs) / 3.0
+    # Weighted triad ensemble OOF probabilities
+    blend_oof_probs = weights[0] * lgbm_probs + weights[1] * xgb_probs + weights[2] * cb_probs
     blend_preds = (blend_oof_probs >= 0.5).astype(int)
 
     f1  = f1_score(labels, blend_preds)
@@ -132,7 +144,7 @@ def main() -> None:
     cb_test_probs  = cb_test_df["cb_prob_cal"].values
 
     # Blend test probabilities
-    triad_test_probs = (cal_lgbm_test + xgb_test_probs + cb_test_probs) / 3.0
+    triad_test_probs = weights[0] * cal_lgbm_test + weights[1] * xgb_test_probs + weights[2] * cb_test_probs
     
     if w_gru > 0.0:
         # Align GRU Test by ID

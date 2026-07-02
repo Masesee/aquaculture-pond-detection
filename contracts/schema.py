@@ -47,6 +47,11 @@ def all_raw_cols() -> list[str]:
 # Metadata columns
 META_COLS = ["ID"]
 TARGET_COL = "label"
+WINDOW_METADATA_COLS = [
+    "window_start", "window_length", "window_center",
+    "window_start_sin", "window_start_cos",
+    "window_center_sin", "window_center_cos"
+]
 
 # Temporal aggregation suffixes applied to every band and index
 AGG_SUFFIXES = [

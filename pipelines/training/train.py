@@ -30,7 +30,7 @@ import joblib
 import lightgbm as lgb
 from sklearn.metrics import f1_score, roc_auc_score
 
-from contracts.schema import TARGET_COL
+from contracts.schema import TARGET_COL, WINDOW_METADATA_COLS
 from pipelines.training.cv_strategy import make_cv_splits, describe_splits
 from pipelines.training.calibration import (
     fit_calibrator,
@@ -144,11 +144,7 @@ def main() -> None:
 
     # ── Optional: Exclude window metadata features ────────────────────────────
     exclude_metadata = "--exclude-metadata" in sys.argv
-    metadata_cols = [
-        "window_start", "window_length", "window_center",
-        "window_start_sin", "window_start_cos",
-        "window_center_sin", "window_center_cos"
-    ]
+    metadata_cols = WINDOW_METADATA_COLS
     if exclude_metadata:
         feature_cols = [c for c in feature_cols if c not in metadata_cols]
         print(f"  Excluded window metadata features. Remaining: {len(feature_cols)}")
