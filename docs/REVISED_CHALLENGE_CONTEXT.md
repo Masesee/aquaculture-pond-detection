@@ -81,7 +81,8 @@ graph TD
 | **Tuned XGBoost Triad (Sub 45)** | **Clean Triad + Optuna-tuned XGBoost on 153 features** | **0.9828** | **0.8638** | **0.8845** | **0.8500** | **669 / 1030** |
 | **Seed-Averaged Triad (Sub 46)** | **Seed averaging [42, 100, 2026] on LGBM + XGB + CB** | **0.9827** | **0.8661** | **0.8850** | **0.8535** | **653 / 1030** |
 | **Meta-Blended Triad (Sub 47)** | **50% Sub 40 (Seed 42) + 50% Sub 46 (Seed Averaged)** | **0.9829** | **0.86598** | **0.88676** | **0.85213** | **662 / 1030** |
-| **Asymmetric Blend (Sub 48)** | **90% Sub 40 (Seed 42) + 10% Sub 46 (Seed Averaged)** | **0.9830** | *TBD* | *TBD* | *TBD* | **666 / 1030** |
+| **Asymmetric Blend (Sub 48)** | **90% Sub 40 (Seed 42) + 10% Sub 46 (Seed Averaged)** | **0.9830** | **0.86666** | **0.88736** | **0.85287** | **666 / 1030** |
+| **Physical Cross-Features (Sub 49)** | **Triad Ensemble on 150 robust features (including 4 cross-feats)** | **0.9823** | *TBD* | *TBD* | *TBD* | **659 / 1030** |
 
 ---
 
@@ -118,3 +119,9 @@ graph TD
   * A 50/50 blend (Sub 47) predicted exactly **662** ponds, but F1 dropped to `0.8521`. This is because linear blending of probabilities near the boundary introduced ranking noise, creating a "valley" of false positives where only 3 of the 9 newly predicted samples were true positives.
   * To fix this, we designed an **Asymmetric Weighted Blend** (90% Sub 40 + 10% Sub 46). By putting 90% of the weight on Sub 40, we preserve its peak rank ordering (AUC) while using Sub 46 as a subtle denoising filter to eliminate tail-end false positives, reducing predicted ponds to exactly **666 / 1030**.
 * **Action:** Created `blend_subs.py` to generate the asymmetric blend.
+
+### 4.7 Robust Physical Cross-Features
+* **Hypothesis:** Aquaculture ponds have distinct physical/temporal signatures (water specularity combined with low vegetation greenness, double-bounce embankments, and high persistence). Constructing explicit cross-features will make it easier for the tree-based models to split on these interactions, boosting representation power.
+* **Findings:** Out of 6 new features, 4 passed the domain-invariance Kolmogorov-Smirnov test (KS < 0.20): `max_awei_vs_veg` (AWEInsh max - NDVI max), `sar_dynamic_range` (VV range / VH range), `max_water_vs_veg` (MNDWI max - NDVI max), and `persistence_water_veg` (NDWI pos count * NDVI low count). LightGBM OOF score rose from `0.9798` to `0.9815` (and calibrated OOF F1 rose to `0.9726`).
+* **Action:** Integrated features in `aggregations.py`, rebuilt feature parquet matrices, and trained the Triad ensemble.
+

@@ -93,6 +93,7 @@ swir1__p90
 re2__median
 red__median
 NDWI__trend_slope
+max_awei_vs_veg
 NDTI__trend_slope
 re3__median
 NDWI__max_consec_change
@@ -100,6 +101,7 @@ nir__median
 AWEInsh__p10
 red__cv
 VV__cv
+sar_dynamic_range
 VV__min
 VV__max
 NDWI__p90
@@ -108,6 +110,7 @@ re1__mean
 NDWI__max
 blue__max
 AWEInsh__range
+max_water_vs_veg
 MNDWI__range
 swir1__max
 MNDWI__min
@@ -138,6 +141,7 @@ swir2__min
 NDVI__min
 NDWI__median
 VV__mean
+persistence_water_veg
 re1_nir__mean
 MNDWI__std
 green__std
