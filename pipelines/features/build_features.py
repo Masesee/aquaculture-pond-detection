@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 from contracts.schema import DataSchema, TARGET_COL
-from pipelines.features.aggregations import build_feature_matrix, feature_names
+from pipelines.features.aggregations import build_feature_matrix, feature_names, fit_seasonal_stats
 
 TRAIN_PATH     = ROOT / "data" / "raw" / "Train.csv"
 TEST_PATH      = ROOT / "data" / "raw" / "Test.csv"
@@ -89,10 +89,15 @@ def main() -> None:
     train_augmented = augment_train_with_masks(train)
     print(f"Train augmented shape: {train_augmented.shape}")
 
+    # ── Fit seasonal stats separately ──
+    print("\n=== Fitting monthly population statistics separately ===")
+    train_stats = fit_seasonal_stats(train)
+    test_stats  = fit_seasonal_stats(test)
+
     # ── Build feature matrices ──
-    print("\n=== Building feature matrices ===")
-    train_feats = build_feature_matrix(train_augmented)
-    test_feats  = build_feature_matrix(test)
+    print("\n=== Building feature matrices (with Double-Sided Internal Standardization) ===")
+    train_feats = build_feature_matrix(train_augmented, train_stats)
+    test_feats  = build_feature_matrix(test, test_stats)
 
     def apply_shap_filter(
         train_feats: pd.DataFrame,
