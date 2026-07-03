@@ -83,7 +83,9 @@ graph TD
 | **Meta-Blended Triad (Sub 47)** | **50% Sub 40 (Seed 42) + 50% Sub 46 (Seed Averaged)** | **0.9829** | **0.86598** | **0.88676** | **0.85213** | **662 / 1030** |
 | **Asymmetric Blend (Sub 48)** | **90% Sub 40 (Seed 42) + 10% Sub 46 (Seed Averaged)** | **0.9830** | **0.86666** | **0.88736** | **0.85287** | **666 / 1030** |
 | **Physical Cross-Features (Sub 49)** | **Triad Ensemble on 150 robust features (including 4 cross-feats)** | **0.9823** | **0.86391** | **0.88269** | **0.85139** | **659 / 1030** |
-| **Asymmetric Cross Blend (Sub 50)** | **90% Seed 42 Triad + 10% Seed-Averaged Triad (150 features)** | **0.9823** | *TBD* | *TBD* | *TBD* | **660 / 1030** |
+| **Asymmetric Cross Blend (Sub 50)** | **90% Seed 42 Triad + 10% Seed-Averaged Triad (150 features)** | **0.9823** | **0.86245** | **0.88340** | **0.84848** | **660 / 1030** |
+| **Asymmetric Blend 80/20 (Sub 51)** | **80% Sub 40 (Seed 42) + 20% Sub 46 (Seed Averaged)** | **0.9830** | **0.86487** | **0.88718** | **0.85000** | **663 / 1030** |
+| **Optimal Weighted Asymmetric (Sub 52)** | **90% Seed 42 + 10% Seed-Avg Triad with Optimized Weights** | **0.9831** | *TBD* | *TBD* | *TBD* | **655 / 1030** |
 
 ---
 
