@@ -106,7 +106,7 @@ CONSEC_CHANGE_TARGETS = ["NDWI", "MNDWI", "VV", "NDTI", "re1_nir"]
 
 # ── Main feature builder ───────────────────────────────────────────────────────
 
-def build_feature_matrix(df: pd.DataFrame, seasonal_stats: dict | None = None) -> pd.DataFrame:
+def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     """
     Transforms a raw dataframe (train or test) into a flat feature matrix.
     Vectorized implementation for maximum speed.
@@ -131,27 +131,6 @@ def build_feature_matrix(df: pd.DataFrame, seasonal_stats: dict | None = None) -
         cols = [raw_col(band, m) for m in MONTHS]
         monthly_band_values[band] = df[cols].rename(columns={raw_col(band, m): m for m in MONTHS}).astype(float)
 
-    # 1b. Z-score normalize monthly values if seasonal_stats are provided
-    monthly_index_values_norm = {}
-    for index_name in INDEX_FN_MAP:
-        df_norm = monthly_index_values[index_name].copy()
-        if seasonal_stats and index_name in seasonal_stats:
-            for m in MONTHS:
-                mean = seasonal_stats[index_name][m]["mean"]
-                std = seasonal_stats[index_name][m]["std"]
-                df_norm[m] = (df_norm[m] - mean) / std
-        monthly_index_values_norm[index_name] = df_norm
-
-    monthly_band_values_norm = {}
-    for band in ALL_BANDS:
-        df_norm = monthly_band_values[band].copy()
-        if seasonal_stats and band in seasonal_stats:
-            for m in MONTHS:
-                mean = seasonal_stats[band][m]["mean"]
-                std = seasonal_stats[band][m]["std"]
-                df_norm[m] = (df_norm[m] - mean) / std
-        monthly_band_values_norm[band] = df_norm
-
     # 2. Compute window metadata features
     mask = ~monthly_band_values[ALL_BANDS[0]].isna()  # shape (n, 12)
     has_valid = mask.any(axis=1).values
@@ -172,15 +151,10 @@ def build_feature_matrix(df: pd.DataFrame, seasonal_stats: dict | None = None) -
     dict_features["window_center_cos"] = np.cos(2 * np.pi * w_center / 12.0)
 
     # 3. Vectorized aggregations helper
-    def add_aggregations(feats_dict: dict, source_df: pd.DataFrame, source_df_unnorm: pd.DataFrame, prefix: str):
+    def add_aggregations(feats_dict: dict, source_df: pd.DataFrame, prefix: str):
         mean = source_df.mean(axis=1)
         std  = source_df.std(axis=1, ddof=1).fillna(0.0)
-        
-        # Compute CV on unnormalized values to prevent division by near-zero standardized means
-        mean_unnorm = source_df_unnorm.mean(axis=1)
-        std_unnorm  = source_df_unnorm.std(axis=1, ddof=1).fillna(0.0)
-        cv          = std_unnorm / (mean_unnorm.abs() + 1e-9)
-        
+        cv   = std / (mean.abs() + 1e-9)
         min_val = source_df.min(axis=1)
         max_val = source_df.max(axis=1)
 
@@ -196,56 +170,69 @@ def build_feature_matrix(df: pd.DataFrame, seasonal_stats: dict | None = None) -
 
     # Aggregations for raw bands
     for band in ALL_BANDS:
-        add_aggregations(dict_features, monthly_band_values_norm[band], monthly_band_values[band], band)
+        add_aggregations(dict_features, monthly_band_values[band], band)
 
     # Aggregations for spectral indices
     for index_name in INDEX_FN_MAP:
-        add_aggregations(dict_features, monthly_index_values_norm[index_name], monthly_index_values[index_name], index_name)
+        add_aggregations(dict_features, monthly_index_values[index_name], index_name)
 
     # 4. Vectorized Persistence fractions
     for feat_name, (index_name, operator, threshold) in PERSISTENCE_RULES.items():
         source_df = monthly_index_values[index_name]
-        valid_counts = (~source_df.isna()).sum(axis=1)
-        
         if operator == ">":
-            meets_rule = (source_df > threshold).sum(axis=1)
+            cond = source_df > threshold
         elif operator == "<":
-            meets_rule = (source_df < threshold).sum(axis=1)
+            cond = source_df < threshold
+        elif operator == ">=":
+            cond = source_df >= threshold
+        elif operator == "<=":
+            cond = source_df <= threshold
         else:
             raise ValueError(f"Unknown operator: {operator}")
-            
-        fraction = meets_rule / np.maximum(valid_counts, 1)
-        dict_features[feat_name] = np.where(valid_counts > 0, fraction, 0.0)
+
+        valid_counts = (~source_df.isna()).sum(axis=1)
+        frac = cond.sum(axis=1) / valid_counts.replace(0, 1)
+        dict_features[feat_name] = frac.fillna(0.0)
 
     # 5. Vectorized Consecutive-month changes
     for target in CONSEC_CHANGE_TARGETS:
         if target in INDEX_FN_MAP:
-            source_df = monthly_index_values_norm[target]
+            source_df = monthly_index_values[target]
         else:
-            source_df = monthly_band_values_norm[target]
+            source_df = monthly_band_values[target]
 
         arr = source_df.values
         nan_mask = np.isnan(arr)
         
-        diffs_dict = {}
-        for i in range(n):
-            valid_vals = arr[i, ~nan_mask[i]]
-            stats_vals = _consecutive_changes(valid_vals)
-            for k, v in stats_vals.items():
-                if k not in diffs_dict:
-                    diffs_dict[k] = []
-                diffs_dict[k].append(v)
-                
-        for k, v in diffs_dict.items():
-            dict_features[f"{target}__{k}"] = np.array(v, dtype=float)
+        # Sort NaNs to the right of the row
+        sorted_indices = np.argsort(nan_mask, axis=1)
+        justified = np.take_along_axis(arr, sorted_indices, axis=1)
+        
+        counts = (~nan_mask).sum(axis=1)
+        diffs = np.abs(np.diff(justified, axis=1))  # shape (n, 11)
+
+        row_indices = np.arange(11)[None, :]  # shape (1, 11)
+        diff_mask = row_indices < (counts[:, None] - 1)
+        masked_diffs = np.where(diff_mask, diffs, np.nan)
+
+        diffs_df = pd.DataFrame(masked_diffs, index=df.index)
+        
+        max_change = diffs_df.max(axis=1).fillna(0.0)
+        mean_change = diffs_df.mean(axis=1).fillna(0.0)
+        monotone = (diffs_df < 0.05).sum(axis=1) / (counts - 1).clip(1)
+        monotone = np.where(counts <= 1, 1.0, monotone)
+
+        dict_features[f"{target}__max_consec_change"]  = max_change
+        dict_features[f"{target}__mean_consec_change"] = mean_change
+        dict_features[f"{target}__monotone_fraction"]  = monotone
 
     # 6. Vectorized Linear Trend Slopes
     t_coords = np.arange(1, 13, dtype=float)
     for target in CONSEC_CHANGE_TARGETS:
         if target in INDEX_FN_MAP:
-            source_df = monthly_index_values_norm[target]
+            source_df = monthly_index_values[target]
         else:
-            source_df = monthly_band_values_norm[target]
+            source_df = monthly_band_values[target]
 
         Y = source_df.values
         valid = ~np.isnan(Y)
@@ -335,43 +322,3 @@ def feature_names(exclude_id: bool = True) -> list[str]:
         cols = ["ID"] + cols
 
     return cols
-
-
-def fit_seasonal_stats(df: pd.DataFrame) -> dict:
-    """
-    Computes monthly mean and standard deviation for each raw band and spectral index.
-    Ignores NaNs (e.g. masked months in the test set).
-    """
-    stats = {}
-    
-    # Precompute indices for each month across all rows
-    monthly_indices = {}
-    for idx_name, fn in INDEX_FN_MAP.items():
-        cols = {}
-        for m in MONTHS:
-            cols[m] = fn(df, m)
-        monthly_indices[idx_name] = pd.DataFrame(cols, index=df.index)
-
-    # Stats for raw bands
-    for band in ALL_BANDS:
-        stats[band] = {}
-        for m in MONTHS:
-            col = raw_col(band, m)
-            vals = df[col].dropna()
-            stats[band][m] = {
-                "mean": float(vals.mean()),
-                "std": float(vals.std(ddof=1)) if len(vals) > 1 else 1.0
-            }
-
-    # Stats for spectral indices
-    for idx_name in INDEX_FN_MAP:
-        stats[idx_name] = {}
-        for m in MONTHS:
-            vals = monthly_indices[idx_name][m].dropna()
-            stats[idx_name][m] = {
-                "mean": float(vals.mean()),
-                "std": float(vals.std(ddof=1)) if len(vals) > 1 else 1.0
-            }
-
-    return stats
-
