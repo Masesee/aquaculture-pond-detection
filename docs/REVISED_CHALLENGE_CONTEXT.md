@@ -85,7 +85,9 @@ graph TD
 | **Physical Cross-Features (Sub 49)** | **Triad Ensemble on 150 robust features (including 4 cross-feats)** | **0.9823** | **0.86391** | **0.88269** | **0.85139** | **659 / 1030** |
 | **Asymmetric Cross Blend (Sub 50)** | **90% Seed 42 Triad + 10% Seed-Averaged Triad (150 features)** | **0.9823** | **0.86245** | **0.88340** | **0.84848** | **660 / 1030** |
 | **Asymmetric Blend 80/20 (Sub 51)** | **80% Sub 40 (Seed 42) + 20% Sub 46 (Seed Averaged)** | **0.9830** | **0.86487** | **0.88718** | **0.85000** | **663 / 1030** |
-| **Optimal Weighted Asymmetric (Sub 52)** | **90% Seed 42 + 10% Seed-Avg Triad with Optimized Weights** | **0.9831** | *TBD* | *TBD* | *TBD* | **655 / 1030** |
+| **Optimal Weighted Asymmetric (Sub 52)** | **90% Seed 42 + 10% Seed-Avg Triad with Optimized Weights** | **0.9831** | **0.86184** | **0.88187** | **0.84848** | **655 / 1030** |
+| **Deterministic Prior Opt (Sub 53)** | **Sub 52 probabilities with computed test prior (0.5658)** | **0.9831** | **0.86184** | **0.88187** | **0.84848** | **655 / 1030** |
+| **Deterministic Prior Equal (Sub 54)** | **90% Seed 42 + 10% Seed-Avg Triad, Equal Weights, Prior 0.5679** | **0.9827** | *TBD* | *TBD* | *TBD* | **660 / 1030** |
 
 ---
 
