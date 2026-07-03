@@ -87,7 +87,9 @@ graph TD
 | **Asymmetric Blend 80/20 (Sub 51)** | **80% Sub 40 (Seed 42) + 20% Sub 46 (Seed Averaged)** | **0.9830** | **0.86487** | **0.88718** | **0.85000** | **663 / 1030** |
 | **Optimal Weighted Asymmetric (Sub 52)** | **90% Seed 42 + 10% Seed-Avg Triad with Optimized Weights** | **0.9831** | **0.86184** | **0.88187** | **0.84848** | **655 / 1030** |
 | **Deterministic Prior Opt (Sub 53)** | **Sub 52 probabilities with computed test prior (0.5658)** | **0.9831** | **0.86184** | **0.88187** | **0.84848** | **655 / 1030** |
-| **Deterministic Prior Equal (Sub 54)** | **90% Seed 42 + 10% Seed-Avg Triad, Equal Weights, Prior 0.5679** | **0.9827** | *TBD* | *TBD* | *TBD* | **660 / 1030** |
+| **Deterministic Prior Equal (Sub 54)** | **90% Seed 42 + 10% Seed-Avg Triad, Equal Weights, Prior 0.5679** | **0.9827** | **0.85920** | **0.88167** | **0.84422** | **660 / 1030** |
+| **Z-score Standalone (Sub 55)** | **LightGBM only on Z-score normalized features, Prior 0.4903** | **0.9833** | **0.80771** | **0.85121** | **0.77871** | **550 / 1030** |
+| **Physical Indices Blend (Sub 56)** | **90% Seed 42 + 10% Seed-Avg Triad, SWI + NFAI features, Prior 0.5764** | **0.9832** | *TBD* | *TBD* | *TBD* | **663 / 1030** |
 
 ---
 

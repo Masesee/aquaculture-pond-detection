@@ -99,7 +99,30 @@ def re1_nir_ratio(df: pd.DataFrame, month: str) -> pd.Series:
     return r1 / (n + EPS)
 
 
-# ── SAR indices ────────────────────────────────────────────────────────────────
+def swi(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Sentinel-2 Water Index.
+    (re1 - swir1) / (re1 + swir1)
+    Specifically designed for Sentinel-2 red-edge and SWIR bands to enhance water extraction.
+    """
+    re1 = df[f"re1_{month}"].astype(float)
+    sw1 = df[f"swir1_{month}"].astype(float)
+    return (re1 - sw1) / (re1 + sw1 + EPS)
+
+
+def nfai(df: pd.DataFrame, month: str) -> pd.Series:
+    """
+    Normalized Floating Algae Index.
+    Measures algal/phytoplankton load in water bodies.
+    NFAI = (nir - R_nir_prime) / (nir + R_nir_prime)
+    Where R_nir_prime = red + 0.1873 * (swir1 - red)
+    """
+    red = df[f"red_{month}"].astype(float)
+    nir = df[f"nir_{month}"].astype(float)
+    sw1 = df[f"swir1_{month}"].astype(float)
+    r_prime = red + 0.1873 * (sw1 - red)
+    return (nir - r_prime) / (nir + r_prime + EPS)
+
 
 def sar_diff_db(df: pd.DataFrame, month: str) -> pd.Series:
     """
@@ -125,4 +148,6 @@ INDEX_FN_MAP: dict[str, callable] = {
     "SAR_diff_db":  sar_diff_db,
     "NDTI":         ndti,
     "re1_nir":      re1_nir_ratio,
+    "SWI":          swi,
+    "NFAI":         nfai,
 }
