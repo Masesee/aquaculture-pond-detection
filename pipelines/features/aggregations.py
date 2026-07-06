@@ -270,7 +270,24 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     dict_features["water_index_agreement"] = row_agreement.fillna(0.0)
     dict_features["water_index_unanimous"] = row_unanimous.fillna(0.0)
 
-    # 8. ID passthrough and assembly
+    # 8. Aligned sequence features (obs_0 to obs_5) to capture calendar-invariant phenology
+    for band in ALL_BANDS:
+        source_df = monthly_band_values[band]
+        arr = source_df.values
+        sorted_indices = np.argsort(~mask.values, axis=1)
+        aligned = np.take_along_axis(arr, sorted_indices, axis=1)[:, :6]
+        for i in range(6):
+            dict_features[f"{band}__obs_{i}"] = aligned[:, i]
+
+    for index_name in INDEX_FN_MAP:
+        source_df = monthly_index_values[index_name]
+        arr = source_df.values
+        sorted_indices = np.argsort(~mask.values, axis=1)
+        aligned = np.take_along_axis(arr, sorted_indices, axis=1)[:, :6]
+        for i in range(6):
+            dict_features[f"{index_name}__obs_{i}"] = aligned[:, i]
+
+    # 9. ID passthrough and assembly
     result_features = pd.DataFrame(dict_features, index=df.index)
     result = pd.concat([df[["ID"]].reset_index(drop=True),
                         result_features.reset_index(drop=True)], axis=1)
@@ -317,6 +334,14 @@ def feature_names(exclude_id: bool = True) -> list[str]:
 
     cols.append("water_index_agreement")
     cols.append("water_index_unanimous")
+
+    for band in ALL_BANDS:
+        for i in range(6):
+            cols.append(f"{band}__obs_{i}")
+
+    for index_name in INDEX_FN_MAP:
+        for i in range(6):
+            cols.append(f"{index_name}__obs_{i}")
 
     if not exclude_id:
         cols = ["ID"] + cols
