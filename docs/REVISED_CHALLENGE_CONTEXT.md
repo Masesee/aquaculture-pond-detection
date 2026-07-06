@@ -90,6 +90,9 @@ graph TD
 | **Deterministic Prior Equal (Sub 54)** | **90% Seed 42 + 10% Seed-Avg Triad, Equal Weights, Prior 0.5679** | **0.9827** | **0.85920** | **0.88167** | **0.84422** | **660 / 1030** |
 | **Z-score Standalone (Sub 55)** | **LightGBM only on Z-score normalized features, Prior 0.4903** | **0.9833** | **0.80771** | **0.85121** | **0.77871** | **550 / 1030** |
 | **Physical Indices Blend (Sub 56)** | **90% Seed 42 + 10% Seed-Avg Triad, SWI + NFAI features, Prior 0.5764** | **0.9832** | *TBD* | *TBD* | *TBD* | **663 / 1030** |
+| **SHAP-100 Triad (Sub 57)** | **Top-100 SHAP features, 3-seed averaged equal blend, window metadata re-added** | **0.9848** | **0.87094** | **0.88839** | **0.85930** | **664 / 1030** |
+| **Sequence-Aligned Triad (Sub 58)** | **120 invariant features + 25 calendar-invariant aligned sequence features** | **0.9809** | **0.85314** | **0.87209** | **0.84051** | **655 / 1030** |
+| **SHAP-100 5-Seed Triad (Sub 59)** | **Top-100 SHAP features, 5-seed averaged equal blend, window metadata re-added** | **0.9848** | *TBD* | *TBD* | *TBD* | **664 / 1030** |
 
 ---
 
