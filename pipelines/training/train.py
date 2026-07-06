@@ -77,11 +77,19 @@ def combined_score(f1: float, auc: float) -> float:
     return 0.6 * f1 + 0.4 * auc
 
 
-def correct_prior(probs: np.ndarray, train_prior: float, test_prior: float) -> np.ndarray:
+def correct_prior(probs: np.ndarray, train_prior: float, test_prior: float, allow_shift: bool = False) -> np.ndarray:
     """
     Adjusts probabilities for a class prior shift.
     Formula: p_new = (p * (pi_test / pi_train)) / (p * (pi_test / pi_train) + (1-p) * ((1-pi_test) / (1-pi_train)))
     """
+    if not np.isclose(test_prior, train_prior, atol=1e-4):
+        if not allow_shift:
+            raise ValueError(
+                f"Prior shift correction (test_prior={test_prior:.4f} != train_prior={train_prior:.4f}) "
+                "is forbidden by default to prevent threshold tuning under Zindi rules. "
+                "Set allow_shift=True to bypass if you have an externally sourced population estimate."
+            )
+
     eps = 1e-9
     probs = np.clip(probs, eps, 1.0 - eps)
     ratio_pos = test_prior / train_prior
@@ -121,7 +129,7 @@ def load_pseudo_labels(
 
 def main() -> None:
     # Parse CLI Arguments
-    test_prior = 0.55  # Default tuned for expected prior shift
+    test_prior = None
     if "--test-prior" in sys.argv:
         try:
             idx = sys.argv.index("--test-prior") + 1
@@ -183,10 +191,21 @@ def main() -> None:
     X_train = train_df[feature_cols]
     y_train = train_df[TARGET_COL].values
     X_test  = test_df[feature_cols]
+    
+    train_prior = y_train.mean()
+    if test_prior is None:
+        test_prior = train_prior
+    else:
+        if not np.isclose(test_prior, train_prior, atol=1e-4):
+            assert "--allow-prior-shift" in sys.argv, (
+                f"Prior shift correction (test_prior={test_prior:.4f} != train_prior={train_prior:.4f}) "
+                "is forbidden by default to prevent threshold tuning under Zindi rules. "
+                "Pass --allow-prior-shift to bypass if you have an externally sourced population estimate."
+            )
 
     print(f"  X_train: {X_train.shape} | X_test: {X_test.shape}")
-    print(f"  Train positive rate (augmented): {y_train.mean():.3f}")
-    print(f"  Adjusting for test positive prior: {test_prior:.3f}")
+    print(f"  Train positive rate (augmented): {train_prior:.4f}")
+    print(f"  Adjusting for test positive prior: {test_prior:.4f}")
 
     # ── Load tuned params if available ────────────────────────────────────────
     best_params_path = MODELS_DIR / "best_params.json"
@@ -382,7 +401,8 @@ def main() -> None:
 
     # Prior shift correction for final submission
     train_prior = y_train.mean()
-    cal_test_probs_corrected = correct_prior(cal_test_probs, train_prior, test_prior)
+    allow_shift = "--allow-prior-shift" in sys.argv
+    cal_test_probs_corrected = correct_prior(cal_test_probs, train_prior, test_prior, allow_shift=allow_shift)
     binary_preds    = (cal_test_probs_corrected >= 0.5).astype(int)
 
     print(f"  Test predicted positive rate (corrected): {binary_preds.mean():.3f}")

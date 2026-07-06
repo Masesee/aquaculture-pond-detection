@@ -83,3 +83,31 @@ def test_non_binary_labels_raises():
     labels = np.array([0, 1, 2])
     with pytest.raises(AssertionError):
         fit_calibrator(probs, labels)
+
+
+def test_prior_shift_succeeds_when_same():
+    from pipelines.training.train import correct_prior
+    probs = np.array([0.2, 0.5, 0.8])
+    # test_prior == train_prior (no shift) should pass without errors
+    corrected = correct_prior(probs, train_prior=0.4, test_prior=0.4, allow_shift=False)
+    assert np.allclose(corrected, probs)
+
+
+def test_prior_shift_blocked_without_flag():
+    from pipelines.training.train import correct_prior
+    probs = np.array([0.2, 0.5, 0.8])
+    # test_prior != train_prior with allow_shift=False should raise ValueError
+    with pytest.raises(ValueError) as excinfo:
+        correct_prior(probs, train_prior=0.4, test_prior=0.55, allow_shift=False)
+    assert "forbidden by default" in str(excinfo.value)
+
+
+def test_prior_shift_allowed_with_flag():
+    from pipelines.training.train import correct_prior
+    probs = np.array([0.2, 0.5, 0.8])
+    # test_prior != train_prior with allow_shift=True should succeed
+    corrected = correct_prior(probs, train_prior=0.4, test_prior=0.55, allow_shift=True)
+    assert corrected is not None
+    assert len(corrected) == len(probs)
+    # The shift to 0.55 (higher positive rate) should increase probabilities
+    assert np.all(corrected > probs)

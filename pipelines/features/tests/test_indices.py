@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from pipelines.features.indices import (
-    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio
+    ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio, swi, nfai
 )
 
 MONTH = "01"
@@ -197,6 +197,40 @@ def test_awei_nsh_positive_for_water(pure_water_df):
 
 def test_no_nan_outputs(sample_df):
     """No index should produce NaN for valid inputs."""
-    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio]:
+    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio, swi, nfai]:
         result = fn(sample_df, MONTH)
         assert not result.isna().any(), f"{fn.__name__} produced NaN values"
+
+
+def test_swi_range(sample_df):
+    vals = swi(sample_df, MONTH)
+    assert vals.between(-1 - 1e-6, 1 + 1e-6).all(), f"SWI out of [-1,1]: {vals.values}"
+
+
+def test_nfai_range(sample_df):
+    vals = nfai(sample_df, MONTH)
+    assert vals.between(-1 - 1e-6, 1 + 1e-6).all(), f"NFAI out of [-1,1]: {vals.values}"
+
+
+def test_nan_mask_propagation():
+    """
+    Verify that when inputs are NaN (representing masked -9999 observations),
+    all indices evaluate to NaN and do not return 0.0 or any numeric leak.
+    """
+    df_nan = pd.DataFrame({
+        f"blue_{MONTH}":   [np.nan],
+        f"green_{MONTH}":  [np.nan],
+        f"red_{MONTH}":    [np.nan],
+        f"nir_{MONTH}":    [np.nan],
+        f"nira_{MONTH}":   [np.nan],
+        f"re1_{MONTH}":    [np.nan],
+        f"re2_{MONTH}":    [np.nan],
+        f"re3_{MONTH}":    [np.nan],
+        f"swir1_{MONTH}":  [np.nan],
+        f"swir2_{MONTH}":  [np.nan],
+        f"VH_{MONTH}":     [np.nan],
+        f"VV_{MONTH}":     [np.nan],
+    })
+    for fn in [ndwi, mndwi, ndvi, ndre, awei_nsh, sar_diff_db, ndti, re1_nir_ratio, swi, nfai]:
+        result = fn(df_nan, MONTH)
+        assert result.isna().all(), f"{fn.__name__} did not propagate NaN correctly"

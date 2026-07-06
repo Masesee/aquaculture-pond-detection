@@ -30,7 +30,7 @@ def combined_score(f1: float, auc: float) -> float:
 
 
 def main() -> None:
-    test_prior = 0.55
+    test_prior = None
     if "--test-prior" in sys.argv:
         try:
             idx = sys.argv.index("--test-prior") + 1
@@ -137,6 +137,8 @@ def main() -> None:
 
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
     train_prior = train_df[TARGET_COL].mean()
+    if test_prior is None:
+        test_prior = train_prior
 
     # Model calibrated test probs
     cal_lgbm_test = lgbm_test_df["lgbm_prob_cal"].values
@@ -155,7 +157,8 @@ def main() -> None:
     else:
         blend_test_probs = triad_test_probs
 
-    blend_test_corrected = correct_prior(blend_test_probs, train_prior, test_prior)
+    allow_shift = "--allow-prior-shift" in sys.argv
+    blend_test_corrected = correct_prior(blend_test_probs, train_prior, test_prior, allow_shift=allow_shift)
     binary_preds = (blend_test_corrected >= 0.5).astype(int)
 
     print(f"  Test predicted positive rate (corrected): {binary_preds.mean():.3f}")
