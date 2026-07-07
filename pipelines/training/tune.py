@@ -26,7 +26,7 @@ import lightgbm as lgb
 from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL
-from pipelines.training.cv_strategy import make_cv_splits
+from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices
 from pipelines.evaluation.metrics import combined_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -65,14 +65,19 @@ def objective(trial: optuna.Trial, train_df: pd.DataFrame, feature_cols: list[st
         "verbose":           -1,
     }
 
-    splits = make_cv_splits(train_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
-    y = train_df[TARGET_COL].values
+    # Use single-window subset (1 window per original sample) matching train.py's CV methodology.
+    # The full 49k-row parquet contains 24 near-duplicate windows per sample; validating on those
+    # inflates the metric and biases param search away from single-window test generalisation.
+    single_idx = get_single_window_indices(train_df, random_state=RANDOM_STATE)
+    tune_df = train_df.iloc[single_idx].reset_index(drop=True)
+    splits = make_cv_splits(tune_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
+    y = tune_df[TARGET_COL].values
     oof_probs = np.zeros(len(y), dtype=float)
 
     for train_pos, val_pos in splits:
-        X_tr  = train_df[feature_cols].iloc[train_pos]
+        X_tr  = tune_df[feature_cols].iloc[train_pos]
         y_tr  = y[train_pos]
-        X_val = train_df[feature_cols].iloc[val_pos]
+        X_val = tune_df[feature_cols].iloc[val_pos]
 
         model = lgb.LGBMClassifier(**params)
         model.fit(X_tr, y_tr)
