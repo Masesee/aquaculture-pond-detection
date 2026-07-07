@@ -26,7 +26,8 @@ import lightgbm as lgb
 from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL
-from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices
+import functools
+from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices, get_fold_train_mask
 from pipelines.evaluation.metrics import combined_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -44,7 +45,15 @@ STUDY_NAME    = "lgbm_aquaculture_regularized"
 STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_regularized.db'}"
 
 
-def objective(trial: optuna.Trial, train_df: pd.DataFrame, feature_cols: list[str]) -> float:
+def objective(
+    trial: optuna.Trial,
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    splits: list[tuple[np.ndarray, np.ndarray]],
+    single_win_indices: np.ndarray,
+    train_df_single: pd.DataFrame,
+    base_ids_full: pd.Series,
+) -> float:
     # Tuned parameters space search centered around robust baseline settings
     params = {
         "objective":         "binary",
@@ -65,27 +74,25 @@ def objective(trial: optuna.Trial, train_df: pd.DataFrame, feature_cols: list[st
         "verbose":           -1,
     }
 
-    # Use single-window subset (1 window per original sample) matching train.py's CV methodology.
-    # The full 49k-row parquet contains 24 near-duplicate windows per sample; validating on those
-    # inflates the metric and biases param search away from single-window test generalisation.
-    single_idx = get_single_window_indices(train_df, random_state=RANDOM_STATE)
-    tune_df = train_df.iloc[single_idx].reset_index(drop=True)
-    splits = make_cv_splits(tune_df, n_splits=N_SPLITS, random_state=RANDOM_STATE)
-    y = tune_df[TARGET_COL].values
-    oof_probs = np.zeros(len(y), dtype=float)
+    y_single = train_df_single[TARGET_COL].values
+    oof_probs = np.zeros(len(y_single), dtype=float)
 
     for train_pos, val_pos in splits:
-        X_tr  = tune_df[feature_cols].iloc[train_pos]
-        y_tr  = y[train_pos]
-        X_val = tune_df[feature_cols].iloc[val_pos]
+        val_idx_in_train_df = single_win_indices[val_pos]
+
+        X_val = train_df.iloc[val_idx_in_train_df][feature_cols]
+
+        train_mask = get_fold_train_mask(train_df, train_df_single, val_pos, base_ids_full)
+        X_tr = train_df.loc[train_mask, feature_cols]
+        y_tr = train_df.loc[train_mask, TARGET_COL].values
 
         model = lgb.LGBMClassifier(**params)
         model.fit(X_tr, y_tr)
         oof_probs[val_pos] = model.predict_proba(X_val)[:, 1]
 
     preds = (oof_probs >= 0.5).astype(int)
-    f1    = f1_score(y, preds)
-    auc   = roc_auc_score(y, oof_probs)
+    f1    = f1_score(y_single, preds)
+    auc   = roc_auc_score(y_single, oof_probs)
     return combined_score(f1, auc)
 
 
@@ -103,6 +110,23 @@ def main() -> None:
         print(f"  Using all {len(feature_cols)} features (no invariant_features.txt found)")
     print(f"  X: {train_df[feature_cols].shape} | positive rate: {train_df[TARGET_COL].mean():.3f}")
 
+    # Prepare hoisted splits and indices once
+    base_ids_full = train_df["ID"].apply(lambda x: x.split("_w")[0])
+    single_win_indices = get_single_window_indices(train_df, random_state=RANDOM_STATE)
+    train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
+    splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
+
+    # Bind variables to objective using partial
+    obj_func = functools.partial(
+        objective,
+        train_df=train_df,
+        feature_cols=feature_cols,
+        splits=splits,
+        single_win_indices=single_win_indices,
+        train_df_single=train_df_single,
+        base_ids_full=base_ids_full
+    )
+
     print(f"\n=== Running Optuna ({N_TRIALS} trials) ===")
     study = optuna.create_study(
         study_name  = STUDY_NAME,
@@ -111,7 +135,7 @@ def main() -> None:
         load_if_exists = True,
     )
     study.optimize(
-        lambda trial: objective(trial, train_df, feature_cols),
+        obj_func,
         n_trials    = N_TRIALS,
         show_progress_bar = True,
     )

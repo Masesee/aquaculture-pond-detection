@@ -31,7 +31,7 @@ import lightgbm as lgb
 from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL, WINDOW_METADATA_COLS
-from pipelines.training.cv_strategy import make_cv_splits, describe_splits
+from pipelines.training.cv_strategy import make_cv_splits, describe_splits, get_single_window_indices, get_fold_train_mask
 from pipelines.training.calibration import (
     fit_calibrator,
     apply_calibrator,
@@ -227,9 +227,11 @@ def main() -> None:
         print("  Using default params (no tuning found)")
 
     # ── CV splits (Group-Aware Stratified CV on single-window validation subset) ──
-    from pipelines.training.cv_strategy import get_single_window_indices
     single_win_indices = get_single_window_indices(train_df, random_state=42)
     train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
+
+    # Hoist base IDs split outside the loop to optimize performance
+    base_ids_full = train_df["ID"].apply(lambda x: x.split("_w")[0])
 
     print(f"\n=== {N_SPLITS}-fold stratified group CV (on 1-window-per-sample validation subset) ===")
     splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
@@ -265,20 +267,24 @@ def main() -> None:
     for fold, (train_pos, val_pos) in enumerate(splits):
         # val_pos refers to index in train_df_single. Map back to train_df:
         val_idx_in_train_df = single_win_indices[val_pos]
-        val_base_ids = set(train_df_single.iloc[val_pos]["ID"].apply(lambda x: x.split("_w")[0]))
 
         X_val = train_df.iloc[val_idx_in_train_df][feature_cols]
         y_val = train_df.iloc[val_idx_in_train_df][TARGET_COL].values
 
+        # Build train mask using shared function
+        train_mask = get_fold_train_mask(train_df, train_df_single, val_pos, base_ids_full)
+
         if use_pseudo:
-            # Train mask: rows in train_df not in validation base IDs
-            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+            # Verify pseudo-labeling concat ordering holds before concatenation
+            assert len(train_augmented) == len(train_df) + len(pseudo_df), (
+                f"Mismatched size in train_augmented ({len(train_augmented)}) "
+                f"vs train_df ({len(train_df)}) + pseudo_df ({len(pseudo_df)})"
+            )
             pseudo_mask = np.ones(len(pseudo_df), dtype=bool)
             full_train_mask = np.concatenate([train_mask, pseudo_mask])
             X_tr = train_augmented.loc[full_train_mask, feature_cols]
             y_tr = train_augmented.loc[full_train_mask, TARGET_COL].values
         else:
-            train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
             X_tr = train_df.loc[train_mask, feature_cols]
             y_tr = train_df.loc[train_mask, TARGET_COL].values
 
