@@ -93,6 +93,9 @@ graph TD
 | **SHAP-100 Triad (Sub 57)** | **Top-100 SHAP features, 3-seed averaged equal blend, window metadata re-added** | **0.9848** | **0.87094** | **0.88839** | **0.85930** | **664 / 1030** |
 | **Sequence-Aligned Triad (Sub 58)** | **120 invariant features + 25 calendar-invariant aligned sequence features** | **0.9809** | **0.85314** | **0.87209** | **0.84051** | **655 / 1030** |
 | **SHAP-100 5-Seed Triad (Sub 59)** | **Top-100 SHAP features, 5-seed averaged equal blend, window metadata re-added** | **0.9848** | *TBD* | *TBD* | *TBD* | **664 / 1030** |
+| **Compliant Baseline (Sub 60)** | **SHAP-100 5-seed Triad, weights 0.380/0.477/0.143, compliant prior (0.4036)** | **0.9840** | **0.87316** | **0.89390** | **0.85934** | **635 / 1030** |
+| **Quantile Misalignment Fix (Sub 61)** | **Sub 60 with --no-quantile to align LGBM features with raw space** | **0.9828** | **0.87796** | **0.90377** | **0.86076** | **658 / 1030** |
+| **Optuna CV Fix (Sub 62)** | **Sub 61 with Optuna hyperparameters tuned on single-window CV splits** | **0.9827** | *TBD* | *TBD* | *TBD* | **648 / 1030** |
 
 ---
 
