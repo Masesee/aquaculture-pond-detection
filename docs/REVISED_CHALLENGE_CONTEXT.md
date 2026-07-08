@@ -97,7 +97,7 @@ graph TD
 | **Quantile Misalignment Fix (Sub 61)** | **Sub 60 with --no-quantile to align LGBM features with raw space** | **0.9828** | **0.87796** | **0.90377** | **0.86076** | **658 / 1030** |
 | **Optuna Scale Fix (Sub 62)** | **Sub 61 with Optuna tuned on correctly-scaled training folds** | **0.9837** | **0.87562** | **0.90441** | **0.85642** | **660 / 1030** |
 | **Compliance Refactor (Sub 63)** | **Sub 62 with calibration & prior correction stripped, DE-optimized weights** | **0.9828** | **0.87377** | **0.89543** | **0.85934** | **638 / 1030** |
-| **Tuned Raw Ensemble (Sub 64)** | **Sub 63 with Optuna-tuned XGBoost & CatBoost, re-optimized weights** | **0.9835** | *TBD* | *TBD* | *TBD* | **632 / 1030** |
+| **Tuned Raw Ensemble (Sub 64)** | **Sub 63 with Optuna-tuned XGBoost & CatBoost, 7-seed-averaged weights** | **0.9818** | *TBD* | *TBD* | *TBD* | **616 / 1030** |
 
 ---
 

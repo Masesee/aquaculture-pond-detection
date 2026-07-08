@@ -187,7 +187,17 @@ Low colsample creates an internal ensemble of diverse feature-subset models.
 | **Quantile Misalignment Fix (Sub 61)** | **Sub 60 with --no-quantile to align LGBM features with raw space** | **0.9828** | **0.8780** | **0.9038** | **0.8608** | **658** | LGBM training on raw features without quantile mapping | Solved quantile mismatch; major F1 and AUC gain |
 | **Optuna Scale Fix (Sub 62)** | **Sub 61 with Optuna tuned on correctly-scaled training folds** | **0.9837** | **0.8756** | **0.9044** | **0.8564** | **660** | Tuned LGBM on aligned raw training splits | Improved AUC to 0.9044, but F1 dropped due to calibration discrepancy |
 | **Compliance Refactor (Sub 63)** | **Sub 62 with calibration & prior correction stripped, DE-optimized weights [0.501, 0.378, 0.120]** | **0.9828** | **0.8738** | **0.8954** | **0.8593** | **638** | 100% Zindi Rule 2 compliant raw probability ensembling | Stripped Isotonic Calibration & prior correction. Improved LB over Sub 60 baseline. |
-| **Tuned Raw Ensemble (Sub 64)** | **Sub 63 with Optuna-tuned XGBoost & CatBoost, re-optimized weights [0.186, 0.787, 0.028]** | **0.9835** | *TBD* | *TBD* | *TBD* | **632** | Tuned XGBoost (100 trials) & CatBoost (60 trials) on aligned raw splits | XGBoost tuning yielded major OOF gain (+0.0026), shifting blend dominance entirely to XGBoost. |
+| **Tuned Raw Ensemble (Sub 64)** | **Sub 63 with Optuna-tuned XGBoost & CatBoost, 7-seed-averaged weights [0.357, 0.501, 0.141]** | **0.9818** | *TBD* | *TBD* | *TBD* | **616** | Tuned XGB (100 trials, widened bounds) & CB (60 trials) + robust weights | Widened XGB search space resolved boundary-clamping (`max_depth` settled at 6). Multi-seed weight check (7 seeds) exposed high seed sensitivity on flat loss surface, resolved by taking 7-seed average weights. |
+
+### Per-Model OOF Comparison (Before/After Tuning)
+
+| Model / Configuration | Baseline (Stock / Pre-Tuning) | Tuned (Optuna Sweeps) | Delta |
+| :--- | :--- | :--- | :--- |
+| **LightGBM** (LGBM) | F1=0.9725 \| AUC=0.9955 \| Score=0.9818 | F1=0.9725 \| AUC=0.9955 \| Score=0.9818 | (Unchanged) |
+| **XGBoost** (XGB) | F1=0.9706 \| AUC=0.9950 \| Score=0.9804 | F1=0.9713 \| AUC=0.9952 \| Score=0.9808 | **+0.0004** |
+| **CatBoost** (CB) | F1=0.9705 \| AUC=0.9956 \| Score=0.9805 | F1=0.9725 \| AUC=0.9939 \| Score=0.9811 | **+0.0006** |
+| **Triad Blend** | F1=0.9733 \| AUC=0.9959 \| Score=0.9823 *(Seed 42 DE overfit)* | F1=0.9726 \| AUC=0.9955 \| Score=0.9818 *(7-seed robust average)* | **-0.0005** *(Regularized)* |
+
 
 
 ---
@@ -260,10 +270,10 @@ increasing false positives. One round of clean augmentation beats iterative pseu
 | Parameter | Value |
 |---|---|
 | Feature set | Top-100 SHAP + 7 window metadata = 107 total |
-| Ensemble | Triad (LGBM + XGBoost + CatBoost), weights [0.1858, 0.7865, 0.0277] |
+| Ensemble | Triad (LGBM + XGBoost + CatBoost), weights [0.3573, 0.5014, 0.1413] |
 | Seed averaging | 3 seeds (42, 100, 2026) |
 | CV | 5-fold StratifiedGroupKFold, grouped by original sample ID, single-window validation |
 | Calibration | None (100% raw probabilities for Zindi Rule 2 compliance) |
 | Prior shift | None (Raw probability outputs only) |
-| Blend type | Raw probability weighted blend (Differential Evolution optimized on OOF) |
-| Sub 64 score | **OOF combined: 0.9835 (F1=0.9753, AUC=0.9957) | Leaderboard: TBD | AUC: TBD | F1: TBD | Predicted ponds: 632** |
+| Blend type | Raw probability weighted blend (7-seed averaged weights) |
+| Sub 64 score | **OOF combined: 0.9818 (F1=0.9726, AUC=0.9955) | Leaderboard: TBD | AUC: TBD | F1: TBD | Predicted ponds: 616** |
