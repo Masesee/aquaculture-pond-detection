@@ -3,6 +3,7 @@ data/raw/
 data/processed/
 outputs/models/*
 !outputs/models/best_params.json
+!outputs/models/blend_weights.json
 outputs/features/*
 !outputs/features/invariant_features.txt
 outputs/submissions/

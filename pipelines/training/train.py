@@ -32,12 +32,6 @@ from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL, WINDOW_METADATA_COLS
 from pipelines.training.cv_strategy import make_cv_splits, describe_splits, get_single_window_indices, get_fold_train_mask
-from pipelines.training.calibration import (
-    fit_calibrator,
-    apply_calibrator,
-    calibration_summary,
-    save_calibrator,
-)
 
 PROCESSED_DIR  = ROOT / "data" / "processed"
 MODELS_DIR     = ROOT / "outputs" / "models"
@@ -75,28 +69,6 @@ EARLY_STOPPING_ROUNDS = 50
 def combined_score(f1: float, auc: float) -> float:
     """Zindi metric: 0.6 * F1 + 0.4 * AUC."""
     return 0.6 * f1 + 0.4 * auc
-
-
-def correct_prior(probs: np.ndarray, train_prior: float, test_prior: float, allow_shift: bool = False) -> np.ndarray:
-    """
-    Adjusts probabilities for a class prior shift.
-    Formula: p_new = (p * (pi_test / pi_train)) / (p * (pi_test / pi_train) + (1-p) * ((1-pi_test) / (1-pi_train)))
-    """
-    if not np.isclose(test_prior, train_prior, atol=1e-4):
-        if not allow_shift:
-            raise ValueError(
-                f"Prior shift correction (test_prior={test_prior:.4f} != train_prior={train_prior:.4f}) "
-                "is forbidden by default to prevent threshold tuning under Zindi rules. "
-                "Set allow_shift=True to bypass if you have an externally sourced population estimate."
-            )
-
-    eps = 1e-9
-    probs = np.clip(probs, eps, 1.0 - eps)
-    ratio_pos = test_prior / train_prior
-    ratio_neg = (1.0 - test_prior) / (1.0 - train_prior)
-    corrected = (probs * ratio_pos) / (probs * ratio_pos + (1.0 - probs) * ratio_neg)
-    return np.clip(corrected, 0.0, 1.0)
-
 
 def load_pseudo_labels(
     submission_path: Path,
@@ -337,20 +309,6 @@ def main() -> None:
     }
     cv_df.to_csv(MODELS_DIR / "cv_summary.csv", index=False)
 
-    # ── Calibration ───────────────────────────────────────────────────────────
-    print("\n=== Fitting calibrator on OOF predictions ===")
-    calibrator    = fit_calibrator(oof_probs, y_train_single)
-    cal_probs_oof = apply_calibrator(calibrator, oof_probs)
-
-    cal_preds_oof = (cal_probs_oof >= 0.5).astype(int)
-    cal_f1        = f1_score(y_train_single, cal_preds_oof)
-    cal_auc       = roc_auc_score(y_train_single, cal_probs_oof)
-    cal_score     = combined_score(cal_f1, cal_auc)
-    print(f"  Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
-
-    cal_summary = calibration_summary(oof_probs, cal_probs_oof, y_train_single)
-    cal_summary.to_csv(MODELS_DIR / "calibration_summary.csv", index=False)
-    print("  Calibration summary saved.")
 
     # ── Final model: retrain on full training data ────────────────────────────
     print("\n=== Training final model on full training data ===")
@@ -394,40 +352,31 @@ def main() -> None:
             joblib.dump(model, MODELS_DIR / "lgbm_model.joblib")
             
     raw_test_probs = np.mean(raw_test_probs_list, axis=0)
-    cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
 
     # Save LightGBM test probabilities to CSV
     lgbm_test_df = pd.DataFrame({
         "ID": test_df["ID"],
         "lgbm_prob_raw": raw_test_probs,
-        "lgbm_prob_cal": cal_test_probs,
     })
     lgbm_test_df.to_csv(MODELS_DIR / "lgbm_test_probs.csv", index=False)
     print("  Saved: outputs/models/lgbm_test_probs.csv")
 
-    # Prior shift correction for final submission
-    train_prior = y_train.mean()
-    allow_shift = "--allow-prior-shift" in sys.argv
-    cal_test_probs_corrected = correct_prior(cal_test_probs, train_prior, test_prior, allow_shift=allow_shift)
-    binary_preds    = (cal_test_probs_corrected >= 0.5).astype(int)
+    binary_preds = (raw_test_probs >= 0.5).astype(int)
 
-    print(f"  Test predicted positive rate (corrected): {binary_preds.mean():.3f}")
-    print(f"  Test calibrated/corrected prob range:     [{cal_test_probs_corrected.min():.3f}, {cal_test_probs_corrected.max():.3f}]")
+    print(f"  Test predicted positive rate: {binary_preds.mean():.3f}")
+    print(f"  Test prob range:              [{raw_test_probs.min():.3f}, {raw_test_probs.max():.3f}]")
 
     # ── Save OOF predictions ──────────────────────────────────────────────────
     oof_df = pd.DataFrame({
         "ID":          train_df_single["ID"].values,
         "label":       y_train_single,
         "oof_prob_raw": oof_probs,
-        "oof_prob_cal": cal_probs_oof,
-        "oof_pred":    cal_preds_oof,
+        "oof_pred":    (oof_probs >= 0.5).astype(int),
     })
     oof_df.to_csv(MODELS_DIR / "oof_predictions.csv", index=False)
 
     # ── Save models ───────────────────────────────────────────────────────────
-    save_calibrator(calibrator, MODELS_DIR / "calibrator.joblib")
     print("  Saved: outputs/models/lgbm_model.joblib")
-    print("  Saved: outputs/models/calibrator.joblib")
     if use_quantile:
         joblib.dump(qt_train, MODELS_DIR / "quantile_transformer_train.joblib")
         joblib.dump(qt_test, MODELS_DIR / "quantile_transformer_test.joblib")
@@ -435,21 +384,21 @@ def main() -> None:
         print("  Saved: outputs/models/quantile_transformer_test.joblib")
 
     # ── Build submission ──────────────────────────────────────────────────────
-    print("\n=== Building submission file ===")
+    print("\n=== Building standalone submission file ===")
     submission = pd.DataFrame({
         "ID":          test_df["ID"].values,
         "TargetF1":    binary_preds,
-        "TargetRAUC":  cal_test_probs_corrected.round(6),
+        "TargetRAUC":  raw_test_probs.round(6),
     })
-    submission.to_csv(SUBMISSIONS_DIR / "submission.csv", index=False)
-    print("  Saved: outputs/submissions/submission.csv")
+    # Standalone path isolated to submission_lgbm_standalone.csv to prevent collision
+    submission.to_csv(SUBMISSIONS_DIR / "submission_lgbm_standalone.csv", index=False)
+    print("  Saved: outputs/submissions/submission_lgbm_standalone.csv")
     print(f"  Submission shape: {submission.shape}")
     print(f"  Predicted ponds: {binary_preds.sum()} / {len(binary_preds)}")
 
     # ── Final summary ─────────────────────────────────────────────────────────
     print("\n=== Training complete ===")
-    print(f"  OOF Score (pre-cal):  {oof_score:.4f}")
-    print(f"  OOF Score (post-cal): {cal_score:.4f}")
+    print(f"  OOF Score:            {oof_score:.4f}")
     print(cv_df.to_string(index=False))
 
 

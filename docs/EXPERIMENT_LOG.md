@@ -183,6 +183,10 @@ Low colsample creates an internal ensemble of diverse feature-subset models.
 | **SHAP-100 Triad (Sub 57)** | **Top-100 SHAP features, 3-seed averaged equal blend** | **0.9848** | **0.8709** | **0.8884** | **0.8593** | **664** | SHAP feature selection + window metadata | **Best Phase 2. SHAP-100 isolates signal from noise; seed-averaging stabilises** |
 | Sequence-Aligned Triad (Sub 58) | 120 invariant features + 25 calendar-invariant sequence features | 0.9809 | 0.8531 | 0.8721 | 0.8405 | 655 | Calendar-invariant sequence alignment | Sequence alignment overfits to specific month patterns |
 | SHAP-100 5-Seed Triad (Sub 59) | Top-100 SHAP features, 5-seed averaged, window metadata | 0.9848 | *TBD* | *TBD* | *TBD* | 664 | 5 seeds instead of 3 | Awaiting leaderboard evaluation |
+| **Compliant Baseline (Sub 60)** | **SHAP-100 5-seed Triad, weights 0.380/0.477/0.143, compliant prior (0.4036)** | **0.9840** | **0.8732** | **0.8939** | **0.8593** | **635** | 5 seeds, compliant prior, asymmetric weights | First fully compliant prior run, solid F1 hold |
+| **Quantile Misalignment Fix (Sub 61)** | **Sub 60 with --no-quantile to align LGBM features with raw space** | **0.9828** | **0.8780** | **0.9038** | **0.8608** | **658** | LGBM training on raw features without quantile mapping | Solved quantile mismatch; major F1 and AUC gain |
+| **Optuna Scale Fix (Sub 62)** | **Sub 61 with Optuna tuned on correctly-scaled training folds** | **0.9837** | **0.8756** | **0.9044** | **0.8564** | **660** | Tuned LGBM on aligned raw training splits | Improved AUC to 0.9044, but F1 dropped due to calibration discrepancy |
+| **Compliance Refactor (Sub 63)** | **Sub 62 with calibration & prior correction stripped, DE-optimized weights [0.501, 0.378, 0.120]** | **0.9828** | *TBD* | *TBD* | *TBD* | *TBD* | 100% Zindi Rule 2 compliant raw probability ensembling | Stripped Isotonic Calibration & prior correction. Weights re-optimized on raw OOF via Differential Evolution to handle non-smooth F1 objective. |
 
 ---
 
@@ -249,15 +253,15 @@ increasing false positives. One round of clean augmentation beats iterative pseu
 
 ---
 
-## Final Model Config (Phase 2 Best: Sub 57)
+## Final Model Config (Phase 2 Compliant Best: Sub 63)
 
 | Parameter | Value |
 |---|---|
 | Feature set | Top-100 SHAP + 7 window metadata = 107 total |
-| Ensemble | Triad (LGBM + XGBoost + CatBoost), equal 1/3 blend |
+| Ensemble | Triad (LGBM + XGBoost + CatBoost), weights [0.5013, 0.3783, 0.1204] |
 | Seed averaging | 3 seeds (42, 100, 2026) |
 | CV | 5-fold StratifiedGroupKFold, grouped by original sample ID, single-window validation |
-| Calibration | Isotonic regression on OOF probabilities |
-| Prior shift | test_prior ≈ 0.50-0.53 (blocked by default; requires `--allow-prior-shift`) |
-| Blend type | Equal-weighted probability blend (no meta-learner) |
-| Sub 57 score | **Leaderboard: 0.8709 | AUC: 0.8884 | F1: 0.8593 | Predicted ponds: 664 / 1030** |
+| Calibration | None (100% raw probabilities for Zindi Rule 2 compliance) |
+| Prior shift | None (Raw probability outputs only) |
+| Blend type | Raw probability weighted blend (Differential Evolution optimized on OOF) |
+| Sub 63 score | **Leaderboard: TBD | AUC: TBD | F1: TBD | Predicted ponds: TBD** |

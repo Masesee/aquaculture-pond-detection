@@ -10,22 +10,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from pipelines.training.train_xgb import correct_prior, combined_score, XGB_PARAMS
+from pipelines.training.train_xgb import combined_score, XGB_PARAMS
 import xgboost as xgb
-
-
-def test_correct_prior_bounds():
-    probs = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
-    corrected = correct_prior(probs, train_prior=0.404, test_prior=0.550)
-    assert len(corrected) == len(probs)
-    assert (corrected >= 0.0).all() and (corrected <= 1.0).all()
-
-
-def test_correct_prior_shift_direction():
-    # When test prior is higher than train prior, probabilities should increase
-    probs = np.array([0.5])
-    corrected = correct_prior(probs, train_prior=0.404, test_prior=0.550)
-    assert corrected[0] > probs[0]
 
 
 def test_combined_score_calculation():

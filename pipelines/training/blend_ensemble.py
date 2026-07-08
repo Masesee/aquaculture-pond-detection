@@ -17,8 +17,7 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd
 from sklearn.metrics import f1_score, roc_auc_score
 
-from contracts.schema import TARGET_COL
-from pipelines.training.train import correct_prior
+from pipelines.training.blending import blend_raw_probs
 
 MODELS_DIR     = ROOT / "outputs" / "models"
 SUBMISSIONS_DIR = ROOT / "outputs" / "submissions"
@@ -30,24 +29,27 @@ def combined_score(f1: float, auc: float) -> float:
 
 
 def main() -> None:
-    test_prior = None
-    if "--test-prior" in sys.argv:
-        try:
-            idx = sys.argv.index("--test-prior") + 1
-            test_prior = float(sys.argv[idx])
-        except (ValueError, IndexError):
-            pass
 
-    weights = [1/3, 1/3, 1/3]
+
+    from pipelines.training.blend_config import load_blend_weights, save_blend_weights
+
+    # Load persisted weights (default 1/3, 1/3, 1/3 if no sweep run yet)
+    weights = list(load_blend_weights())
+    
     if "--weights" in sys.argv:
         try:
             idx = sys.argv.index("--weights") + 1
             w_str = sys.argv[idx]
-            weights = [float(x) for x in w_str.split(",")]
-            w_sum = sum(weights)
-            weights = [w / w_sum for w in weights]
+            user_weights = [float(x) for x in w_str.split(",")]
+            w_sum = sum(user_weights)
+            weights = [w / w_sum for w in user_weights]
         except (ValueError, IndexError):
             pass
+
+    if "--save-weights" in sys.argv:
+        save_blend_weights(tuple(weights))
+        print("  Persisted current blend weights to blend_weights.json")
+        
     print(f"=== [Ensemble] Blending weights: LGBM={weights[0]:.3f}, XGB={weights[1]:.3f}, CB={weights[2]:.3f} ===")
 
     print("=== [Ensemble] Loading OOF predictions ===")
@@ -58,12 +60,12 @@ def main() -> None:
     assert len(lgbm_oof) == len(xgb_oof) == len(cb_oof), "Mismatched OOF rows between models!"
 
     labels = lgbm_oof["label"].values
-    lgbm_probs = lgbm_oof["oof_prob_cal"].values
-    xgb_probs  = xgb_oof["oof_prob_cal"].values
-    cb_probs   = cb_oof["oof_prob_cal"].values
+    lgbm_probs = lgbm_oof["oof_prob_raw"].values
+    xgb_probs  = xgb_oof["oof_prob_raw"].values
+    cb_probs   = cb_oof["oof_prob_raw"].values
 
     # Weighted triad ensemble OOF probabilities
-    blend_oof_probs = weights[0] * lgbm_probs + weights[1] * xgb_probs + weights[2] * cb_probs
+    blend_oof_probs = blend_raw_probs(lgbm_probs, xgb_probs, cb_probs, weights=tuple(weights))
     blend_preds = (blend_oof_probs >= 0.5).astype(int)
 
     f1  = f1_score(labels, blend_preds)
@@ -135,18 +137,13 @@ def main() -> None:
     xgb_test_df = pd.read_csv(MODELS_DIR / "xgb_test_probs.csv")
     cb_test_df  = pd.read_csv(MODELS_DIR / "cb_test_probs.csv")
 
-    train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
-    train_prior = train_df[TARGET_COL].mean()
-    if test_prior is None:
-        test_prior = train_prior
-
-    # Model calibrated test probs
-    cal_lgbm_test = lgbm_test_df["lgbm_prob_cal"].values
-    xgb_test_probs = xgb_test_df["xgb_prob_cal"].values
-    cb_test_probs  = cb_test_df["cb_prob_cal"].values
+    # Model raw test probs
+    raw_lgbm_test = lgbm_test_df["lgbm_prob_raw"].values
+    raw_xgb_test  = xgb_test_df["xgb_prob_raw"].values
+    raw_cb_test   = cb_test_df["cb_prob_raw"].values
 
     # Blend test probabilities
-    triad_test_probs = weights[0] * cal_lgbm_test + weights[1] * xgb_test_probs + weights[2] * cb_test_probs
+    triad_test_probs = blend_raw_probs(raw_lgbm_test, raw_xgb_test, raw_cb_test, weights=tuple(weights))
     
     if w_gru > 0.0:
         # Align GRU Test by ID
@@ -157,17 +154,15 @@ def main() -> None:
     else:
         blend_test_probs = triad_test_probs
 
-    allow_shift = "--allow-prior-shift" in sys.argv
-    blend_test_corrected = correct_prior(blend_test_probs, train_prior, test_prior, allow_shift=allow_shift)
-    binary_preds = (blend_test_corrected >= 0.5).astype(int)
+    binary_preds = (blend_test_probs >= 0.5).astype(int)
 
-    print(f"  Test predicted positive rate (corrected): {binary_preds.mean():.3f}")
+    print(f"  Test predicted positive rate: {binary_preds.mean():.3f}")
     print(f"  Predicted ponds: {binary_preds.sum()} / {len(binary_preds)}")
 
     submission = pd.DataFrame({
         "ID": test_df["ID"],
         "TargetF1": binary_preds,
-        "TargetRAUC": blend_test_corrected,
+        "TargetRAUC": blend_test_probs,
     })
     submission_path = SUBMISSIONS_DIR / "submission.csv"
     submission.to_csv(submission_path, index=False)

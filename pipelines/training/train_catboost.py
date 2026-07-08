@@ -25,10 +25,6 @@ from pipelines.training.cv_strategy import (
     make_cv_splits,
     get_single_window_indices,
 )
-from pipelines.training.calibration import (
-    fit_calibrator,
-    apply_calibrator,
-)
 
 PROCESSED_DIR  = ROOT / "data" / "processed"
 MODELS_DIR     = ROOT / "outputs" / "models"
@@ -51,15 +47,6 @@ CAT_PARAMS = {
 
 def combined_score(f1: float, auc: float) -> float:
     return 0.6 * f1 + 0.4 * auc
-
-
-def correct_prior(probs: np.ndarray, train_prior: float, test_prior: float) -> np.ndarray:
-    eps = 1e-9
-    probs = np.clip(probs, eps, 1.0 - eps)
-    ratio_pos = test_prior / train_prior
-    ratio_neg = (1.0 - test_prior) / (1.0 - train_prior)
-    corrected = (probs * ratio_pos) / (probs * ratio_pos + (1.0 - probs) * ratio_neg)
-    return np.clip(corrected, 0.0, 1.0)
 
 
 def main() -> None:
@@ -165,14 +152,6 @@ def main() -> None:
     oof_score = combined_score(oof_f1, oof_auc)
     print(f"\n  [CatBoost] OOF aggregate (pre-cal) — F1={oof_f1:.4f} | AUC={oof_auc:.4f} | Score={oof_score:.4f}")
 
-    print("\n=== [CatBoost] Fitting calibrator on OOF predictions ===")
-    calibrator    = fit_calibrator(oof_probs, y_train_single)
-    cal_probs_oof = apply_calibrator(calibrator, oof_probs)
-    cal_preds_oof = (cal_probs_oof >= 0.5).astype(int)
-    cal_f1        = f1_score(y_train_single, cal_preds_oof)
-    cal_auc       = roc_auc_score(y_train_single, cal_probs_oof)
-    cal_score     = combined_score(cal_f1, cal_auc)
-    print(f"  [CatBoost] Calibrated OOF — F1={cal_f1:.4f} | AUC={cal_auc:.4f} | Score={cal_score:.4f}")
 
     seeds = [42, 100, 2026]
     if "--seeds" in sys.argv:
@@ -196,26 +175,20 @@ def main() -> None:
             joblib.dump(model, MODELS_DIR / "cb_model.joblib")
             
     raw_test_probs = np.mean(raw_test_probs_list, axis=0)
-    cal_test_probs  = apply_calibrator(calibrator, raw_test_probs)
-
 
     oof_df = pd.DataFrame({
         "ID": train_df_single["ID"].values,
         "label": y_train_single,
         "oof_prob_raw": oof_probs,
-        "oof_prob_cal": cal_probs_oof,
     })
     oof_df.to_csv(MODELS_DIR / "cb_oof_predictions.csv", index=False)
 
     test_probs_df = pd.DataFrame({
         "ID": test_df["ID"].values,
         "cb_prob_raw": raw_test_probs,
-        "cb_prob_cal": cal_test_probs,
     })
     test_probs_df.to_csv(MODELS_DIR / "cb_test_probs.csv", index=False)
 
-
-    joblib.dump(calibrator, MODELS_DIR / "cb_calibrator.joblib")
     print("  Saved: outputs/models/cb_model.joblib (seed 42)")
     print("  Saved: outputs/models/cb_oof_predictions.csv")
     print("  Saved: outputs/models/cb_test_probs.csv")
