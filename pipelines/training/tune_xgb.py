@@ -21,7 +21,7 @@ import xgboost as xgb
 from sklearn.metrics import f1_score, roc_auc_score
 
 from contracts.schema import TARGET_COL, WINDOW_METADATA_COLS
-from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices
+from pipelines.training.cv_strategy import make_cv_splits, get_single_window_indices, get_fold_train_mask
 from pipelines.evaluation.metrics import combined_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -57,12 +57,10 @@ def objective(trial: optuna.Trial, train_df: pd.DataFrame, train_df_single: pd.D
     splits = make_cv_splits(train_df_single, n_splits=N_SPLITS, random_state=RANDOM_STATE)
     y_train_single = train_df_single[TARGET_COL].values
     oof_probs = np.zeros(len(y_train_single), dtype=float)
+    base_ids_full = train_df["ID"].apply(lambda x: x.split("_w")[0])
 
     for train_pos, val_pos in splits:
-        # Map validation back to train_df:
-        val_base_ids = set(train_df_single.iloc[val_pos]["ID"].apply(lambda x: x.split("_w")[0]))
-
-        train_mask = train_df["ID"].apply(lambda x: x.split("_w")[0] not in val_base_ids).values
+        train_mask = get_fold_train_mask(train_df, train_df_single, val_pos, base_ids_full)
         X_tr = train_df.loc[train_mask, feature_cols]
         y_tr = train_df.loc[train_mask, TARGET_COL].values
 
