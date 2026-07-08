@@ -131,3 +131,54 @@ def test_no_group_leakage_across_folds():
         assert len(leakage) == 0, f"Fold {fold_idx} has group leakage: {leakage}"
 
 
+def test_tune_xgb_and_tune_catboost_share_fold_construction():
+    """
+    Asserts that both tune_xgb.py and tune_catboost.py do not duplicate the 
+    cross-validation fold construction or scoring loop, and instead delegate 
+    entirely to run_oof_tuning_loop from tuning_utils.py.
+    """
+    import inspect
+    import ast
+    
+    # 1. Inspect imports and calls in tune_xgb.py
+    xgb_path = ROOT / "pipelines" / "training" / "tune_xgb.py"
+    with open(xgb_path) as f:
+        xgb_tree = ast.parse(f.read())
+        
+    forbidden_imports = {"make_cv_splits", "get_fold_train_mask"}
+    
+    for node in ast.walk(xgb_tree):
+        if isinstance(node, ast.ImportFrom):
+            imported_names = {alias.name for alias in node.names}
+            intersect = imported_names.intersection(forbidden_imports)
+            assert not intersect, (
+                f"tune_xgb.py must not import {intersect} directly. "
+                "All fold construction must happen inside tuning_utils.run_oof_tuning_loop."
+            )
+            
+    # 2. Inspect imports and calls in tune_catboost.py
+    cb_path = ROOT / "pipelines" / "training" / "tune_catboost.py"
+    with open(cb_path) as f:
+        cb_tree = ast.parse(f.read())
+        
+    for node in ast.walk(cb_tree):
+        if isinstance(node, ast.ImportFrom):
+            imported_names = {alias.name for alias in node.names}
+            intersect = imported_names.intersection(forbidden_imports)
+            assert not intersect, (
+                f"tune_catboost.py must not import {intersect} directly. "
+                "All fold construction must happen inside tuning_utils.run_oof_tuning_loop."
+            )
+            
+    # 3. Assert delegation to run_oof_tuning_loop
+    from pipelines.training.tune_xgb import objective as xgb_obj
+    from pipelines.training.tune_catboost import objective as cb_obj
+    
+    xgb_source = inspect.getsource(xgb_obj)
+    cb_source = inspect.getsource(cb_obj)
+    
+    assert "run_oof_tuning_loop" in xgb_source, "XGBoost objective must delegate to run_oof_tuning_loop."
+    assert "run_oof_tuning_loop" in cb_source, "CatBoost objective must delegate to run_oof_tuning_loop."
+
+
+

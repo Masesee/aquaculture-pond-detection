@@ -1,10 +1,10 @@
 """
-Optuna hyperparameter sweep for XGBoost on masked temporal features.
+Optuna hyperparameter sweep for CatBoost on masked temporal features.
 Optimises the Zindi combined score (0.6*F1 + 0.4*AUC) on OOF predictions
 using StratifiedGroupKFold to prevent data leakage.
 
 Run with:
-    python -m pipelines.training.tune_xgb
+    python -m pipelines.training.tune_catboost
 """
 
 import sys
@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 import optuna
-import xgboost as xgb
+import catboost as cb
 
 from contracts.schema import WINDOW_METADATA_COLS
 from pipelines.training.cv_strategy import get_single_window_indices
@@ -33,38 +33,35 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 N_SPLITS      = 5
 RANDOM_STATE  = 42
-N_TRIALS      = 100
-STUDY_NAME    = "xgb_aquaculture_regularized"
-STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_xgb.db'}"
+N_TRIALS      = 60
+STUDY_NAME    = "cb_aquaculture_regularized"
+STORAGE       = f"sqlite:///{LOGS_DIR / 'optuna_study_cb.db'}"
 
 
-def suggest_xgb_params(trial: optuna.Trial) -> dict:
+def suggest_cb_params(trial: optuna.Trial) -> dict:
     """Samples hyperparameters once per trial."""
     return {
-        "n_estimators":      trial.suggest_int(  "n_estimators",      150,    450),
-        "learning_rate":     trial.suggest_float("learning_rate",      0.02,   0.08, log=True),
-        "max_depth":         trial.suggest_int(  "max_depth",          3,      6),
-        "min_child_weight":  trial.suggest_int(  "min_child_weight",   2,      15),
-        "subsample":         trial.suggest_float("subsample",          0.55,   0.85),
-        "colsample_bytree":  trial.suggest_float("colsample_bytree",   0.35,   0.65),
-        "reg_alpha":         trial.suggest_float("reg_alpha",          0.01,   10.0,  log=True),
-        "reg_lambda":        trial.suggest_float("reg_lambda",         0.1,    30.0,  log=True),
-        "eval_metric":       "logloss",
-        "n_jobs":            -1,
-        "random_state":      RANDOM_STATE,
+        "iterations":        trial.suggest_int(  "iterations",        150,    450),
+        "learning_rate":     trial.suggest_float("learning_rate",     0.02,   0.08, log=True),
+        "depth":             trial.suggest_int(  "depth",             3,      6),
+        "l2_leaf_reg":       trial.suggest_float("l2_leaf_reg",       1.0,    10.0),
+        "random_seed":       RANDOM_STATE,
+        "verbose":           0,
+        "thread_count":      -1,
     }
 
 
-def create_xgb_model(params: dict) -> xgb.XGBClassifier:
+def create_cb_model(params: dict) -> cb.CatBoostClassifier:
     """Instantiates a fresh model from the parameter dictionary."""
-    return xgb.XGBClassifier(**params, early_stopping_rounds=50)
+    return cb.CatBoostClassifier(**params)
 
 
-def fit_predict_xgb(model: xgb.XGBClassifier, X_tr: pd.DataFrame, y_tr: np.ndarray, X_val: pd.DataFrame, y_val: np.ndarray) -> np.ndarray:
+def fit_predict_cb(model: cb.CatBoostClassifier, X_tr: pd.DataFrame, y_tr: np.ndarray, X_val: pd.DataFrame, y_val: np.ndarray) -> np.ndarray:
     """Trains model with early stopping and returns class-1 probabilities."""
     model.fit(
         X_tr, y_tr,
-        eval_set=[(X_val, y_val)],
+        eval_set=(X_val, y_val),
+        early_stopping_rounds=50,
         verbose=False,
     )
     return model.predict_proba(X_val)[:, 1]
@@ -76,10 +73,10 @@ def objective(trial: optuna.Trial, train_df: pd.DataFrame, train_df_single: pd.D
         train_df=train_df,
         train_df_single=train_df_single,
         feature_cols=feature_cols,
-        param_space_fn=suggest_xgb_params,
-        model_factory=create_xgb_model,
+        param_space_fn=suggest_cb_params,
+        model_factory=create_cb_model,
         trial=trial,
-        fit_predict_fn=fit_predict_xgb,
+        fit_predict_fn=fit_predict_cb,
         n_splits=N_SPLITS,
         random_state=RANDOM_STATE,
     )
@@ -103,7 +100,7 @@ def main() -> None:
     single_win_indices = get_single_window_indices(train_df, random_state=42)
     train_df_single = train_df.iloc[single_win_indices].reset_index(drop=True)
 
-    print(f"\n=== Running Optuna for XGBoost ({N_TRIALS} trials) ===")
+    print(f"\n=== Running Optuna for CatBoost ({N_TRIALS} trials) ===")
     study = optuna.create_study(
         study_name  = STUDY_NAME,
         storage     = STORAGE,
@@ -111,7 +108,7 @@ def main() -> None:
         load_if_exists = True,
     )
     
-    progress_callback = TuningProgressCallback("XGBoost", print_every=10)
+    progress_callback = TuningProgressCallback("CatBoost", print_every=10)
     
     study.optimize(
         lambda trial: objective(trial, train_df, train_df_single, feature_cols),
@@ -126,11 +123,11 @@ def main() -> None:
     for k, v in best.params.items():
         print(f"    {k}: {v}")
 
-    best_params = {**best.params, "random_state": RANDOM_STATE}
-    with open(MODELS_DIR / "best_params_xgb.json", "w") as f:
+    best_params = {**best.params, "random_seed": RANDOM_STATE}
+    with open(MODELS_DIR / "best_params_cb.json", "w") as f:
         json.dump(best_params, f, indent=2)
 
-    print("  Saved: outputs/models/best_params_xgb.json")
+    print("  Saved: outputs/models/best_params_cb.json")
 
 
 if __name__ == "__main__":

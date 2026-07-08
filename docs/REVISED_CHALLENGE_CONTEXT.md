@@ -96,7 +96,8 @@ graph TD
 | **Compliant Baseline (Sub 60)** | **SHAP-100 5-seed Triad, weights 0.380/0.477/0.143, compliant prior (0.4036)** | **0.9840** | **0.87316** | **0.89390** | **0.85934** | **635 / 1030** |
 | **Quantile Misalignment Fix (Sub 61)** | **Sub 60 with --no-quantile to align LGBM features with raw space** | **0.9828** | **0.87796** | **0.90377** | **0.86076** | **658 / 1030** |
 | **Optuna Scale Fix (Sub 62)** | **Sub 61 with Optuna tuned on correctly-scaled training folds** | **0.9837** | **0.87562** | **0.90441** | **0.85642** | **660 / 1030** |
-| **Compliance Refactor (Sub 63)** | **Sub 62 with calibration & prior correction stripped, DE-optimized weights** | **0.9828** | *TBD* | *TBD* | *TBD* | *TBD* |
+| **Compliance Refactor (Sub 63)** | **Sub 62 with calibration & prior correction stripped, DE-optimized weights** | **0.9828** | **0.87377** | **0.89543** | **0.85934** | **638 / 1030** |
+| **Tuned Raw Ensemble (Sub 64)** | **Sub 63 with Optuna-tuned XGBoost & CatBoost, re-optimized weights** | **0.9835** | *TBD* | *TBD* | *TBD* | **632 / 1030** |
 
 ---
 

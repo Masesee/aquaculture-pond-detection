@@ -9,6 +9,7 @@ Run with:
 """
 
 import sys
+import json
 import joblib
 from pathlib import Path
 
@@ -51,6 +52,14 @@ def combined_score(f1: float, auc: float) -> float:
 
 def main() -> None:
     print("=== [CatBoost] Loading feature matrices ===")
+    
+    best_params_path = MODELS_DIR / "best_params_cb.json"
+    active_params = {**CAT_PARAMS}
+    if best_params_path.exists():
+        with open(best_params_path) as f:
+            _bp = json.load(f)
+        active_params.update(_bp)
+        print("  Loaded tuned params from best_params_cb.json")
 
     train_df = pd.read_parquet(PROCESSED_DIR / "train_features.parquet")
     test_df  = pd.read_parquet(PROCESSED_DIR / "test_features.parquet")
@@ -126,7 +135,7 @@ def main() -> None:
             X_tr = train_df.loc[train_mask, feature_cols]
             y_tr = train_df.loc[train_mask, TARGET_COL].values
 
-        model = cb.CatBoostClassifier(**CAT_PARAMS)
+        model = cb.CatBoostClassifier(**active_params)
         model.fit(
             X_tr, y_tr,
             eval_set=(X_val, y_val),
@@ -164,7 +173,7 @@ def main() -> None:
     raw_test_probs_list = []
     
     for seed in seeds:
-        seed_params = {**CAT_PARAMS, "random_seed": seed}
+        seed_params = {**active_params, "random_seed": seed}
         model = cb.CatBoostClassifier(**seed_params)
         if use_pseudo:
             model.fit(train_augmented[feature_cols], train_augmented[TARGET_COL].values)

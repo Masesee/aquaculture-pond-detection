@@ -3,6 +3,8 @@ data/raw/
 data/processed/
 outputs/models/*
 !outputs/models/best_params.json
+!outputs/models/best_params_xgb.json
+!outputs/models/best_params_cb.json
 !outputs/models/blend_weights.json
 outputs/features/*
 !outputs/features/invariant_features.txt
@@ -75,4 +77,4 @@ experiments/logs/
 .agents/
 
 # ML Logs
-catboost_info/
+catboost_info/
