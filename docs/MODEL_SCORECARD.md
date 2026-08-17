@@ -18,22 +18,33 @@ replicating or extending this work.
 | Test availability | 4–6 consecutive months of observations (remainder masked to -9999) |
 | Coordinates | Removed from competition data |
 | Competition | Zindi aquaculture pond detection (revised Phase 2) |
-| Best submission | Sub 57 — SHAP-100 Triad, 3-seed averaged, equal blend |
+| Best submission | Sub 61 — Quantile Misalignment Fix (best performing) & Sub 64 — Tuned Raw Ensemble (best compliant) |
 
 ---
 
 ## Performance
 
-### Phase 2 (Current — Sub 57)
+### Phase 2 (Current)
+
+**Best Leaderboard Performance (Sub 61 - Quantile Misalignment Fix):**
 
 | Metric | OOF (train period) | Leaderboard (test period) |
 |---|---|---|
-| Combined score | 0.9848 | **0.8709** |
-| F1 @ 0.5 threshold | — | **0.8593** |
-| ROC-AUC | — | **0.8884** |
-| Predicted ponds | — | 664 / 1,030 |
+| Combined score | 0.9828 | **0.8780** |
+| F1 @ 0.5 threshold | — | **0.8608** |
+| ROC-AUC | — | **0.9038** |
+| Predicted ponds | — | 658 / 1,030 |
 
-OOF overestimates leaderboard by ~0.114 due to temporal distribution shift
+**Best Zindi-Compliant Pipeline (Sub 64 - Tuned Raw Ensemble):**
+
+| Metric | OOF (train period) | Leaderboard (test period) |
+|---|---|---|
+| Combined score | 0.9818 | **TBD** |
+| F1 @ 0.5 threshold | 0.9726 | **TBD** |
+| ROC-AUC | 0.9955 | **TBD** |
+| Predicted ponds | — | 616 / 1,030 |
+
+OOF overestimates leaderboard by ~0.10-0.11 due to temporal distribution shift
 between train and test periods (larger gap than Phase 1 because of 4–6 month masking).
 
 ### Phase 1 (Archived — Sub 22)

@@ -4,7 +4,7 @@
 using 12 months of Sentinel-1 SAR + Sentinel-2 optical data.
 
 **Phase 1 — Full-Year Observations (archived): 0.9798** (0.6 × F1 + 0.4 × AUC) | F1: 0.9697 | AUC: 0.9949
-**Phase 2 — Masked Temporal Windows (current): 0.87094** | F1: 0.8593 | AUC: 0.8884
+**Phase 2 — Masked Temporal Windows (current): 0.87796** | F1: 0.8608 | AUC: 0.9038
 
 > Full performance breakdown for both phases → [`docs/MODEL_SCORECARD.md`](docs/MODEL_SCORECARD.md)
 > Full experiment history (84+ submissions, lessons learned) → [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
@@ -24,7 +24,7 @@ The competition ran in two phases:
 | Phase | Train | Test | Coordinates | Test Temporal Availability | Best Score |
 |---|---|---|---|---|---|
 | **1** (archived) | 963 (40.8% ponds) | 858 | Available | Full 12 months | **0.9798** |
-| **2** (current) | 1,821 | 1,030 | **Removed** | 4–6 consecutive months only | **0.87094** |
+| **2** (current) | 1,821 | 1,030 | **Removed** | 4–6 consecutive months only | **0.87796** |
 
 **Metric:** `0.6 × F1 + 0.4 × AUC` at a fixed 0.5 decision threshold
 
